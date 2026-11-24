@@ -4,6 +4,12 @@ The board ranks protocols that record no token by an **implied launch
 value**: what a token would be worth if the protocol's record stayed as it
 is. The value is computed from the snapshot's own figures only — TVL. No
 protocol name is ever special-cased; the same function scores every row.
+Coverage is full: every pre-token protocol that passes the eligibility
+test is ranked, 197 rows — the 40 watchlist slugs plus 157 outside the
+watchlist, including 20 above the $50M floor that the early board left
+out. The estimator is the radar-5 log-log curve, unchanged; only the
+board's coverage changed, so the version stays radar-5 and every
+validation number below is the same as the 177-row board's.
 
 ## The formula
 
@@ -33,6 +39,7 @@ Worked examples from this snapshot (computed, not assumed):
 | Protocol | TVL | Curve multiple | Implied value |
 | --- | --- | --- | --- |
 | Steakhouse Financial | $2,753,981,495 | 0.0328 | $90,330,593 |
+| Sentora Curator | $2,757,585,593 | 0.0327 | $90,173,049 |
 | USDD | $1,055,793,606 | 0.0518 | $54,690,109 |
 | Nucleus | $5,007,171 | 0.6673 | $3,341,285 |
 
@@ -259,7 +266,8 @@ protocols). Brier score **0.2836** against **0.3176** for the base rate
 10.7% improvement. The test covers dated protocols only; the 113
 undated protocols cannot be placed in time. Odds across the board run
 0.1378–0.8913 (median 0.3321). The highest expected value is USDD at
-$19,535,307 — odds never outrank value.
+$19,535,307, just ahead of Polymarket International at $19,321,833 —
+odds never outrank value.
 
 **Odds is a display and second-sort field only.** The board's primary
 rank stays by implied value, and the gate requires non-increasing
@@ -292,13 +300,13 @@ cannot rule out one worth almost nothing.
 
 - **Ranked:** protocols whose record carries no token at all (`mcap_usd`,
   `gecko_id` and `symbol` all null). All 40 watchlist slugs, plus every
-  pre-token protocol below the $50M floor that passes the eligibility test
-  below — 137 of them in this snapshot, 177 rows in all. The test is the
+  pre-token protocol outside the watchlist that passes the eligibility test
+  below — 157 of them in this snapshot, 197 rows in all. The test is the
   snapshot's own watchlist rule, applied to every board candidate alike
-  (watchlist and below-floor), so a below-floor row cannot slip through on
-  a category or a name the watchlist would have refused. The board runs
+  (watchlist and non-watchlist), so a non-watchlist row cannot slip through
+  on a category or a name the watchlist would have refused. The board runs
   $90,330,593 (Steakhouse Financial) down to $3,341,285 (Nucleus),
-  $1,843,611,967 in all.
+  $2,269,286,628 in all.
 - **Set aside, never ranked:** protocols whose token already trades. The
   dashboard shows the top 24 of them at the market's own value (their
   market cap), in a separate Live view, so the board never mixes a model's
@@ -309,22 +317,53 @@ and shipped in `data.js` under `accounting`:
 
 ```
 758 total
-  = 177 ranked (40 watchlist + 137 below-floor)
+  = 197 ranked (40 watchlist + 157 outside the watchlist)
   + 24 traded, shown in the Live view
-  + 165 set-aside pre-token
+  + 145 set-aside pre-token
       (category leg 128, version leg 11, name leg 6,
-       rankable but not chosen 20)
+       rankable but not chosen 0)
   + 392 tokenized, not shown
 ```
 
-The 20 rankable-but-not-chosen are all above the $50M floor and not on
-the watchlist: the early radar takes below-floor protocols only, so an
-above-floor protocol that is not a watchlist slug is never a candidate
-(Sentora Curator, Polymarket International and Defi Saver Asset
-Management are the largest of them). The house's parent-protocol leg
-cannot be tested from the snapshot at all — the snapshot carries no
-parent field — so these 20 are accounted for, not silently dropped. The
-early-row cap (160) is not binding: 137 below-floor protocols pass.
+### The 20 above-floor rows — included at full value, no discount
+
+The early board ranked below-floor protocols only (137 of them), which
+left 20 above-floor protocols unranked even though they pass the same
+eligibility test. They are now ranked, at the same curve value as every
+other row: Sentora Curator (#2, $90,173,049), Polymarket International
+(#9), CIAN Yield Layer (#12), Defi Saver Asset Management (#13), Mellow
+Core (#16), BitFi Basis (#19), Figure Markets Prime (#24), Theo Network
+thUSD (#29), Figure Markets Exchange (#31), Extended Perps (#37), Avant
+avUSD (#38), Stellar DeFi Hub (#41), Loopscale Lending (#45), IPOR
+Fusion (#48), Circle Gateway (#49), Arcus Perps (#52), Solv Strategies
+(#54), USDCx (#55), AZverse Perps (#58) and Nado Spot (#60). The board
+is 197 rows; the top-10 share of combined value is 23.5%.
+
+Why no discount: every snapshot-testable hypothesis for why the house
+watchlist omits these 20 was run and fails. They pass the category leg
+(none is a Bridge, Liquid Staking, Restaking, Restaked BTC or CEX),
+the version leg (no V2/v2/2.0 suffix), the name leg (no restak/stak/
+wrapped substring), the exchange-name test (no name begins with an
+exchange name), the parent-name test (no name shares a distinctive stem
+with a tokenized protocol, except Solv Strategies below) and the
+duplication test (all 20 TVLs are unique in the snapshot). No figure in
+the snapshot distinguishes them from the 137 rows already ranked — and
+no figure sets a haircut factor for them. A haircut (halving, P10
+pricing, any fixed factor) would be a hardcoded value with no
+snapshot-derived justification, which is exactly what the value model
+forbids. The watchlist is the floor, never the ceiling: the house's own
+rule has no above-floor exclusion, and the board's rule is the
+eligibility test, applied alike to every candidate.
+
+The one same-family signal: **Solv Strategies** (#54, $11,858,490)
+shares its first word with two tokenized Solv protocols (Solv Basis
+Trading, Solv RWA). The same first-word test also flags six rows
+already on the board at full value — GMX Solana, Kava Mint, MetalX
+Swap, Flying Tulip ftUSD, Manta CeDeFi and Mezo Earn — so a sibling
+haircut would have to apply to those too, and no figure sets it. Solv
+Strategies ranks at full value like them: a strategy vault is not a
+wrapped or staked receipt token, and its category (Onchain Capital
+Allocator) is the same shape as Mellow Core and IPOR Fusion beside it.
 
 ## The eligibility test — not a wrapped or staked product of one that trades
 
@@ -493,8 +532,8 @@ carries a `cost_plan` in `data.js` with the arithmetic behind the plan:
   show both the pessimistic P10 net and the expected net side by side.
 
 The honest result on this snapshot: the P10 verdict column now
-discriminates a little — FARM 0 / THIN 12 / SKIP 165 at the $1,000
-reference (at the $50 minimum it is 0 / 3 / 174: the gross is twenty
+discriminates a little — FARM 0 / THIN 12 / SKIP 185 at the $1,000
+reference (at the $50 minimum it is 0 / 1 / 196: the gross is twenty
 times smaller while gas barely moves). The reason the column is still
 thin is arithmetic, not a threshold choice: the largest gross at P10
 on the whole board is $10 (GoonFi: multiple 0.6537 × its Dexs P10 factor
@@ -504,8 +543,8 @@ and the best net at P10 is $5 (Manifest Trade, Byreal and Katana DEX
 tie at $5) after gas and opportunity cost. FARM needs a net above $50;
 the best row's net grows about $0.005 per extra dollar of deposit, so
 FARM needs roughly $11,000 of capital on that row. The expected net
-discriminates more: at the same $1,000 and the same bars, 0 FARM / 102
-THIN / 75 SKIP. The thresholds were not moved to manufacture a spread —
+discriminates more: at the same $1,000 and the same bars, 0 FARM / 108
+THIN / 89 SKIP. The thresholds were not moved to manufacture a spread —
 the P10 column says what it says, and the detail view shows the expected
 net alongside it.
 

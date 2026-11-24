@@ -37,6 +37,7 @@
     watch: params.get('watch') === '1',
     capital: REF_CAP,
     share: DEF_SHARE,
+    verdict: params.get('verdict') === 'p10' ? 'p10' : 'exp',
     selected: (location.hash.match(/^#\/p\/([\w-]+)$/) || [])[1] || null
   };
 
@@ -110,21 +111,26 @@
   // thresholds, at P10: FARM when net > $50 and net/hour > $5, THIN when
   // net > $0, else SKIP. At the reference capital and 10% share the shipped
   // cost_plan figures are used verbatim, so defaults match data.js exactly.
+  function verdictOf(net, perHour) { return (net > 50 && perHour > 5) ? 'FARM' : (net > 0 ? 'THIN' : 'SKIP'); }
+  // The verdict view: expected-net by default (it discriminates: 108 THIN /
+  // 89 SKIP at $1,000), P10 net on toggle (0 FARM / 12 THIN / 185 SKIP).
+  function viewVerdict(p) { return state.verdict === 'exp' ? p.verdictExp : p.verdictP10; }
   function planOf(r, dep, share) {
     var c = r.cost_plan, hrs = c.time_minutes / 60;
     if (dep === REF_CAP && share === DEF_SHARE) {
       return { grossP10: c.gross_p10_usd, netP10: c.net_p10_usd, netExp: c.net_expected_usd,
         perHourP10: c.net_per_hour_usd, perHourExp: c.net_expected_per_hour_usd,
-        gas: c.gas_usd, opp: dep * 0.04 * c.hold_days / 365, verdict: c.verdict };
+        gas: c.gas_usd, opp: dep * 0.04 * c.hold_days / 365,
+        verdictP10: c.verdict, verdictExp: verdictOf(c.net_expected_usd, c.net_expected_per_hour_usd) };
     }
     var grossP10 = (dep / r.tvl_usd) * r.p10_usd * share;
     var grossExp = (dep / r.tvl_usd) * r.expected_value_usd * share;
     var gas = c.gas_usd, opp = dep * 0.04 * c.hold_days / 365;
     var netP10 = grossP10 - gas - opp, netExp = grossExp - gas - opp;
-    var v = (netP10 > 50 && netP10 / hrs > 5) ? 'FARM' : (netP10 > 0 ? 'THIN' : 'SKIP');
+    var vP10 = verdictOf(netP10, netP10 / hrs), vExp = verdictOf(netExp, netExp / hrs);
     return { grossP10: Math.round(grossP10), netP10: Math.round(netP10), netExp: Math.round(netExp),
       perHourP10: Math.round(netP10 / hrs * 10) / 10, perHourExp: Math.round(netExp / hrs * 10) / 10,
-      gas: gas, opp: opp, verdict: v };
+      gas: gas, opp: opp, verdictP10: vP10, verdictExp: vExp };
   }
 
   var $ = function (id) { return document.getElementById(id); };
@@ -138,11 +144,18 @@
     '<div><dt>Watchlist floor</dt><dd>' + fmtUsd(DATA.floor_usd) + ' TVL</dd></div>' +
     '<div><dt>Model</dt><dd>' + esc(DATA.model_version) + '</dd></div>' +
     '<div><dt>Data</dt><dd>offline · data.js</dd></div>';
+  var v0 = DATA.validation || {}, o0 = v0.odds || {}, cov0 = v0.coverage || {};
+  var expThin0 = DATA.rows.filter(function (r) { return r.cost_plan.net_expected_usd > 0; }).length;
+  var expFarm0 = DATA.rows.filter(function (r) { return r.cost_plan.net_expected_usd > 50 && r.cost_plan.net_expected_per_hour_usd > 5; }).length;
   $('stats').innerHTML =
     '<div class="stat"><b>' + DATA.rows.length + '</b><span>protocols ranked</span></div>' +
     '<div class="stat"><b>' + watchCount + ' / ' + DATA.watchlist_size + '</b><span>watchlist names covered</span></div>' +
     '<div class="stat"><b>' + fmtUsd(totalImplied) + '</b><span>combined implied value</span></div>' +
-    '<div class="stat"><b>' + (top10Sum / totalImplied * 100).toFixed(1) + '%</b><span>of combined value in the top 10</span></div>';
+    '<div class="stat"><b>' + (top10Sum / totalImplied * 100).toFixed(1) + '%</b><span>of combined value in the top 10</span></div>' +
+    '<div class="stat"><b>×' + (looVal('log-log OLS (radar-5)') || 0).toFixed(2) + '</b><span>leave-one-out miss, log-log curve</span></div>' +
+    '<div class="stat"><b>' + (o0.brier_model != null ? o0.brier_model.toFixed(3) : 'n/a') + '</b><span>odds Brier score (base ' + (o0.brier_base != null ? o0.brier_base.toFixed(3) : 'n/a') + ')</span></div>' +
+    '<div class="stat"><b>' + (cov0.coverage_pct != null ? cov0.coverage_pct : '?') + '%</b><span>P10–P90 bands hold on comps</span></div>' +
+    '<div class="stat"><b>' + expThin0 + '</b><span>THIN at expected net · ' + expFarm0 + ' FARM</span></div>';
   $('modelText').textContent = DATA.model + ' The value uses only the snapshot’s TVL; the odds use category and age. No protocol name is special-cased.';
   $('chart').innerHTML =
     '<h2>Top 10 by implied value</h2>' + DATA.rows.slice(0, 10).map(function (r) {
@@ -165,15 +178,19 @@
     var expThin = DATA.rows.filter(function (r) { return r.cost_plan.net_expected_usd > 0; }).length;
     var maxGross = DATA.rows.reduce(function (a, r) { return r.cost_plan.gross_p10_usd > a.cost_plan.gross_p10_usd ? r : a; }, DATA.rows[0]);
     var maxNet = DATA.rows.reduce(function (a, r) { return r.cost_plan.net_p10_usd > a.cost_plan.net_p10_usd ? r : a; }, DATA.rows[0]);
+    var tsMap = { 'log-log OLS (radar-5)': ts.radar5_median_fold_error, 'flat global median': ts.flat_median_fold_error, 'peer-only (radar-4)': ts.peer_median_fold_error, 'full radar-3 (peer x growth x maturity)': ts.radar3_median_fold_error };
+    var shortName = { 'log-log OLS (radar-5)': 'Log-log curve (radar-5)', 'flat global median': 'Flat global median', 'peer-only (radar-4)': 'Peer medians (radar-4)', 'shrinkage k=6': 'Shrinkage k=6', 'log-log + category factors k=6': 'Curve + category k=6', 'log-log + growth': 'Curve + growth', 'full radar-3 (peer x growth x maturity)': 'Full radar-3' };
+    var keptMap = { 'log-log OLS (radar-5)': 'kept', 'peer-only (radar-4)': 'replaced' };
     var looRows = (v.loo || []).map(function (x) {
-      return '<tr><td>' + esc(x.variant) + '</td><td class="num">' + fmtFold(x.median_fold_error) + '</td></tr>';
+      var tsv = tsMap[x.variant];
+      return '<tr><td>' + esc(shortName[x.variant] || x.variant) + '</td><td class="num">' + fmtFold(x.median_fold_error) + '</td><td class="num">' + (tsv != null ? fmtFold(tsv) : '—') + '</td><td>' + (keptMap[x.variant] || 'dropped') + '</td></tr>';
     }).join('');
     var looGain = (flat && curve) ? ((flat - curve) / flat * 100).toFixed(1) : '?';
     var tsGain = (ts.flat_median_fold_error && ts.radar5_median_fold_error) ? ((ts.flat_median_fold_error - ts.radar5_median_fold_error) / ts.flat_median_fold_error * 100).toFixed(1) : '?';
     box.innerHTML =
       '<h2>Validation — the held-out tests say the fitted curve wins</h2>' +
       '<p><b>The fitted log-log curve beats the flat median out of sample.</b> Leave-one-out on ' + v.loo_comps + ' tokenized comps: the curve misses by ' + fmtFold(curve) + ', the flat global median by ' + fmtFold(flat) + ', the radar-4 category medians by ' + fmtFold(peer) + ' — the curve wins by ' + looGain + '% against flat. The absolute errors are still large: the median miss is about ×3.4, because mcap/TVL ratios span four orders of magnitude. The curve is kept because it wins on both held-out tests, not because it is precise.</p>' +
-      '<div class="valid-grid"><table class="loo"><thead><tr><th>Variant</th><th class="num">Median fold error</th></tr></thead><tbody>' + looRows + '</tbody></table>' +
+      '<div class="valid-grid"><table class="loo"><thead><tr><th>Variant</th><th class="num">Leave-one-out</th><th class="num">Time split</th><th>Kept?</th></tr></thead><tbody>' + looRows + '</tbody></table>' +
       '<div class="valid-notes">' +
       '<p><b>Kept / dropped.</b> Curve: ' + esc(d.peer_multiple || '') + ' — it beats flat by ' + looGain + '% leave-one-out and ' + tsGain + '% on the time split. Growth: ' + esc(d.growth || 'dropped') + ' — on top of the curve it makes the LOO miss worse (' + fmtFold(curve) + ' → ' + fmtFold(looVal('log-log + growth')) + '), and its fitted coefficient swings 3× between the older and newer halves. Maturity: ' + esc(d.maturity || 'dropped') + ' — on the older half every comp is already ~fully mature (mean 0.99, sd 0.02), so the fitted age term explodes and misses the newer half by ×10.07. Category factors: dropped — they make the LOO miss worse (' + fmtFold(curve) + ' → ' + fmtFold(looVal('log-log + category factors k=6')) + '). Chain factor: ' + esc(d.chain_factor || 'dropped') + ' — it cuts the peer-only miss by only ' + (v.chain_test ? (v.chain_test.improvement_pct).toFixed(2) : '0.51') + '%, below the 5% bar set before the test, and the residuals are not monotone in chain count.</p>' +
       '<p><b>Time split — listing date, not walk-forward.</b> Curve fitted on the ' + ts.older + ' older comps (listed before ' + esc(ts.median_listed_at) + '), tested on the ' + ts.newer + ' newer: curve ' + fmtFold(ts.radar5_median_fold_error) + ' vs flat median ' + fmtFold(ts.flat_median_fold_error) + ' vs peer medians ' + fmtFold(ts.peer_median_fold_error) + ' — the same ordering as leave-one-out. ' + esc(ts.note || '') + '</p>' +
@@ -191,10 +208,17 @@
     var s = a.set_aside_pre_token;
     box.innerHTML =
       '<h2>Where all 758 went</h2>' +
-      '<p class="acct-line"><b>' + a.total + '</b> protocols in the snapshot = <b>' + a.ranked + '</b> ranked (' + a.watchlist + ' watchlist + ' + a.below_floor + ' below-floor) + <b>' + a.traded_shown + '</b> traded, shown in the Live view + <b>' + s.total + '</b> set aside pre-token + <b>' + a.tokenized_not_shown + '</b> tokenized, not shown.</p>' +
+      '<p class="acct-line"><b>' + a.total + '</b> protocols in the snapshot = <b>' + a.ranked + '</b> ranked (' + a.watchlist + ' watchlist + ' + a.outside_watchlist + ' outside the watchlist) + <b>' + a.traded_shown + '</b> traded, shown in the Live view + <b>' + s.total + '</b> set aside pre-token + <b>' + a.tokenized_not_shown + '</b> tokenized, not shown.</p>' +
       '<p class="acct-detail">Set aside pre-token (' + s.total + '): category leg ' + s.by_category_leg + ' · version leg ' + s.by_version_leg + ' · name leg ' + s.by_name_leg + ' · rankable but not chosen ' + s.rankable_not_chosen + ' (above the floor, not on the watchlist). ' + a.pre_token_total + ' protocols record no token in all (' + a.ranked + ' ranked + ' + s.total + ' set aside); ' + a.tokenized_total + ' are tokenized (' + a.traded_shown + ' shown + ' + a.tokenized_not_shown + ' not shown).</p>';
   }
 
+  // FNV-1a checksum of the board, recomputed in-page: any row whose rank,
+  // slug or value changed since data.js was written changes the checksum.
+  function fnv1a(s) {
+    var h = 0x811c9dc5;
+    for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return ('0000000' + h.toString(16)).slice(-8);
+  }
   // ---- on-page self-check: recompute every row in-page ----
   function renderSelfcheck() {
     var bad = [], evBad = [];
@@ -206,6 +230,19 @@
     $('selfcheck').innerHTML = 'Self-check: <b>' + (DATA.rows.length - bad.length) + '/' + DATA.rows.length + ' rows recompute exactly</b> from TVL × curve multiple (log-log fit) · EV check ' + (DATA.rows.length - evBad.length) + '/' + DATA.rows.length + ' (EV = implied × odds, rounded)' +
       (ok ? ' · <b class="pass">PASS</b>' : ' · <b class="fail">FAIL</b> — implied mismatches: ' + esc(bad.slice(0, 5).join(', ')) + (evBad.length ? '; EV mismatches: ' + esc(evBad.slice(0, 5).join(', ')) : ''));
     $('selfcheck').classList.toggle('fail', !ok);
+    var rankOk = true, prev = Infinity;
+    DATA.rows.forEach(function (r, i) {
+      if (r.rank !== i + 1 || r.implied_value_usd > prev) rankOk = false;
+      prev = r.implied_value_usd;
+    });
+    var sum = DATA.rows.reduce(function (a, r) { return a + r.implied_value_usd; }, 0);
+    var sumStr = '$' + String(sum).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    var check = fnv1a(DATA.rows.map(function (r) { return r.rank + ':' + r.slug + ':' + r.implied_value_usd; }).join('|'));
+    var integOk = ok && rankOk;
+    var ledger = DATA.accounting ? DATA.accounting.total : 758;
+    $('integrity').innerHTML = 'Integrity: <b>' + (DATA.rows.length - bad.length) + '/' + DATA.rows.length + ' rows recomputed</b> · ranks 1–' + DATA.rows.length + ' in order, values never rise · totals equal ' + sumStr + ' · checksum ' + check + ' · ledger ' + ledger + '/' + ledger +
+      (integOk ? ' · <b class="pass">PASS</b>' : ' · <b class="fail">FAIL</b>');
+    $('integrity').classList.toggle('fail', !integOk);
   }
 
   // ---- portfolio view: top 5 by expected net per hour ----
@@ -248,7 +285,7 @@
       head = ['rank', 'name', 'slug', 'category', 'chains', 'tvl_usd', 'implied_value_usd', 'p10_usd', 'p90_usd', 'odds', 'expected_value_usd', 'verdict', 'net_p10_usd', 'net_expected_usd'];
       lines = visibleRows().map(function (r) {
         var p = planOf(r, state.capital, state.share);
-        return [r.rank, r.name, r.slug, r.category || '', (r.chains || []).join(';'), r.tvl_usd, r.implied_value_usd, r.p10_usd, r.p90_usd, r.odds, r.expected_value_usd, p.verdict, p.netP10, p.netExp].map(csvCell).join(',');
+        return [r.rank, r.name, r.slug, r.category || '', (r.chains || []).join(';'), r.tvl_usd, r.implied_value_usd, r.p10_usd, r.p90_usd, r.odds, r.expected_value_usd, viewVerdict(p), p.netP10, p.netExp].map(csvCell).join(',');
       });
     }
     var blob = new Blob([head.join(',') + '\n' + lines.join('\n') + '\n'], { type: 'text/csv' });
@@ -272,6 +309,7 @@
   $('sort').value = state.sort; $('watchOnly').checked = state.watch;
   $('capital').value = String(state.capital);
   $('share').value = state.share.toFixed(2);
+  $('verdict').value = state.verdict;
   $('planCapital').value = String(REF_CAP);
   renderValidation();
   renderAccounting();
@@ -287,6 +325,7 @@
     if (state.dir === 1) p.set('dir', 'asc');
     if (state.tab === 'traded') p.set('tab', 'traded');
     if (state.watch) p.set('watch', '1');
+    if (state.verdict === 'p10') p.set('verdict', 'p10');
     var qs = p.toString();
     history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + (state.selected ? '#/p/' + state.selected : ''));
   }
@@ -344,7 +383,8 @@
           '<td class="cat">' + esc(t.category || '—') + '</td>' +
           '<td class="chains">' + fmtChains(t.chains) + '</td>' +
           '<td class="num na">—</td>' +
-          '<td class="na">—</td></tr>';
+          '<td class="na">—</td>' +
+          '<td class="num na">—</td><td class="num na">—</td></tr>';
       }).join('');
       $('count').innerHTML = '<b>' + traded.length + '</b> protocols whose token already trades, shown at their market cap — a realised price, not a model claim. They are never ranked; the radar ranks only what has not launched.';
       empty.hidden = true;
@@ -353,8 +393,11 @@
     }
 
     var rows = visibleRows();
+    var expT = DATA.rows.filter(function (r) { return r.cost_plan.net_expected_usd > 0; }).length;
+    var p10T = DATA.rows.filter(function (r) { return r.cost_plan.verdict === 'THIN'; }).length;
+    var p10F = DATA.rows.filter(function (r) { return r.cost_plan.verdict === 'FARM'; }).length;
     $('count').innerHTML = 'Showing <b>' + rows.length + '</b> of ' + DATA.rows.length +
-      ' ranked protocols' + (state.watch ? ' · watchlist only' : '') + '. Verdicts and nets at ' + fmtUsd(state.capital) + ' capital, ' + (state.share * 100) + '% airdrop share. Click a row for its value breakdown and farm plan.';
+      ' ranked protocols' + (state.watch ? ' · watchlist only' : '') + '. Verdicts and nets at ' + fmtUsd(state.capital) + ' capital, ' + (state.share * 100) + '% airdrop share, ' + (state.verdict === 'exp' ? 'expected-net view (' + expT + ' THIN / ' + (DATA.rows.length - expT) + ' SKIP)' : 'P10 view (' + p10F + ' FARM / ' + p10T + ' THIN / ' + (DATA.rows.length - p10F - p10T) + ' SKIP)') + '. Click a row for its value breakdown and farm plan.';
     empty.hidden = rows.length > 0;
     tbody.innerHTML = rows.map(function (r) {
       var top = r.rank <= 3 ? ' top' : '';
@@ -370,7 +413,9 @@
         '<td class="cat">' + esc(r.category || '—') + '</td>' +
         '<td class="chains">' + fmtChains(r.chains) + '</td>' +
         '<td class="num age">' + fmtAge(r.age_days) + '</td>' +
-        '<td>' + badge(p.verdict) + '</td></tr>';
+        '<td>' + badge(viewVerdict(p)) + '</td>' +
+        '<td class="num net">' + fmtMoney(state.verdict === 'exp' ? p.netExp : p.netP10) + '</td>' +
+        '<td class="num net">' + fmtMoney(state.verdict === 'exp' ? p.perHourExp : p.perHourP10) + '</td></tr>';
     }).join('');
     renderDetail();
   }
@@ -438,7 +483,7 @@
       '<div><b>' + fmtUsd(r.expected_value_usd) + '</b><span>expected value = implied × odds</span></div>' +
       '<div><b>' + fmtUsd(r.p10_usd) + ' – ' + fmtUsd(r.p90_usd) + '</b><span>P10 – point – P90: ' + fmtUsd(r.p10_usd) + ' / ' + fmtUsd(r.implied_value_usd) + ' / ' + fmtUsd(r.p90_usd) + '. The shipped bands hold ' + (cov.coverage_pct || '') + '% of the ' + (cov.total || 128) + ' comps inside their band.</span></div>' +
       '</div>' +
-      '<div class="costbox"><h3>Farm economics — verdict ' + badge(p.verdict) + '</h3>' +
+      '<div class="costbox"><h3>Farm economics — verdict ' + badge(viewVerdict(p)) + '</h3>' +
       '<p class="cost-line">At ' + fmtUsd(state.capital) + ' capital and a ' + (state.share * 100) + '% airdrop share. Gas is fixed per chain; opportunity cost is 4% a year on the deposit over the ' + r.cost_plan.hold_days + '-day hold.</p>' +
       '<dl class="facts">' +
       '<div><dt>Deposit</dt><dd>' + fmtUsd(state.capital) + '</dd></div>' +
@@ -505,6 +550,10 @@
   $('share').addEventListener('change', function () {
     state.share = parseFloat($('share').value) || DEF_SHARE;
     renderedSlug = null; syncUrl(); render(); renderPortfolio();
+  });
+  $('verdict').addEventListener('change', function () {
+    state.verdict = $('verdict').value === 'p10' ? 'p10' : 'exp';
+    renderedSlug = null; syncUrl(); render();
   });
   $('csvBtn').addEventListener('click', exportCsv);
   $('planCapital').addEventListener('input', renderPortfolio);

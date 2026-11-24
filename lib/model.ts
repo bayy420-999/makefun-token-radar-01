@@ -36,9 +36,22 @@
 // gecko_id and symbol all null. Protocols whose token already trades are
 // never ranked; they are set aside as the live set, shown at the market's
 // own value (their mcap). The board covers every watchlist slug (the floor,
-// never the ceiling) and adds up to 160 pre-token protocols below the floor
-// that pass the eligibility test below — the snapshot's own watchlist rule,
-// applied to every board candidate alike.
+// never the ceiling) and adds up to 160 pre-token protocols outside the
+// watchlist that pass the eligibility test below — the snapshot's own
+// watchlist rule, applied to every board candidate alike. Coverage is full:
+// the early board took below-floor protocols only, which left 20 above-floor
+// protocols that pass the same test unranked. Every snapshot-testable
+// hypothesis for why the house watchlist omits those 20 fails (category,
+// version, name, exchange-name beginning, parent-name linkage,
+// duplication), so no figure in the snapshot distinguishes them from the
+// rows already ranked — and no figure sets a haircut for them either, so
+// they rank at the same curve value as every other row, no discount. The
+// one same-family signal, Solv Strategies sharing its first word with two
+// tokenized Solv protocols, also flags six rows already on the board at
+// full value, so a sibling haircut would have to apply to those too; the
+// rule stays uniform: same test, same value. The estimator is unchanged
+// (same log-log curve, same validation numbers), so the version stays
+// radar-5; only the board's coverage changed.
 
 import { REFERENCE_CAPITAL_USD, costPlan, farmSteps as costedFarmSteps } from './farm.ts';
 import type { CostPlan } from './farm.ts';
@@ -95,7 +108,8 @@ export const MODEL: ModelConstants = {
 
 export const MODEL_VERSION = 'radar-5';
 
-export const EARLY_ROWS = 160;
+/** Cap on ranked rows outside the watchlist (157 on this snapshot: not binding). */
+export const MAX_NON_WATCHLIST_ROWS = 160;
 
 export const LIVE_ROWS = 24;
 
@@ -198,7 +212,7 @@ export interface RadarData {
   watchlist_size: number;
   watchlist_count: number;
   board_size: number;
-  early_size: number;
+  outside_watchlist_size: number;
   live_size: number;
   global_peer_multiple: number;
   peers: PeerEntry[];
@@ -229,7 +243,7 @@ export interface Validation {
 
 /** The full-758 accounting, every count computed from the snapshot. */
 export interface Accounting {
-  total: number; ranked: number; watchlist: number; below_floor: number;
+  total: number; ranked: number; watchlist: number; outside_watchlist: number;
   traded_shown: number; tokenized_total: number; tokenized_not_shown: number; pre_token_total: number;
   set_aside_pre_token: { total: number; by_category_leg: number; by_version_leg: number; by_name_leg: number; rankable_not_chosen: number };
 }
@@ -618,7 +632,7 @@ export function buildAccounting(s: Snapshot, board: BoardRow[], live: LiveRow[])
     else legs[3]!++;
   }
   return {
-    total: s.protocols.length, ranked: board.length, watchlist, below_floor: board.length - watchlist,
+    total: s.protocols.length, ranked: board.length, watchlist, outside_watchlist: board.length - watchlist,
     traded_shown: live.length, tokenized_total: tokenized, tokenized_not_shown: tokenized - live.length, pre_token_total: pre.length,
     set_aside_pre_token: { total: legs[0]! + legs[1]! + legs[2]! + legs[3]!, by_category_leg: legs[0]!, by_version_leg: legs[1]!, by_name_leg: legs[2]!, rankable_not_chosen: legs[3]! },
   };
@@ -635,10 +649,10 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
     if (p !== undefined && isRankable(p)) chosen.set(slug, p);
   }
   const early = snapshot.protocols
-    .filter((p) => !chosen.has(p.slug) && isRankable(p) && p.tvl_usd < snapshot.floor_usd)
+    .filter((p) => !chosen.has(p.slug) && isRankable(p))
     .map((p) => ({ p, score: impliedValue(p, snapshot.as_of, loglog, unknownAgeDays, model).implied }))
     .sort((a, b) => b.score - a.score || (a.p.slug < b.p.slug ? -1 : a.p.slug > b.p.slug ? 1 : 0))
-    .slice(0, EARLY_ROWS);
+    .slice(0, MAX_NON_WATCHLIST_ROWS);
   for (const e of early) chosen.set(e.p.slug, e.p);
 
   const scored = [...chosen.values()].map((p) => {
@@ -757,7 +771,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
   const live = liveRows(snapshot);
   const peers = peerMultiples(snapshot, model);
   const loglog = fitLogLog(snapshot.protocols);
-  const early = board.filter((r) => !snapshot.watchlist.includes(r.slug)).length;
+  const outside = board.filter((r) => !snapshot.watchlist.includes(r.slug)).length;
   const watchlist = new Set(snapshot.watchlist);
   const radar: RadarData = {
     as_of: snapshot.as_of,
@@ -771,7 +785,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     watchlist_size: snapshot.watchlist.length,
     watchlist_count: snapshot.watchlist.length,
     board_size: board.length,
-    early_size: early,
+    outside_watchlist_size: outside,
     live_size: live.length,
     global_peer_multiple: round4(peers.global),
     peers: [...peers.byCategory.values()],
