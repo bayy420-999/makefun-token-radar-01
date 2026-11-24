@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Radar — pre-token protocols ranked by implied value</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+<header class="mast">
+  <div class="mast-inner">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true"></span>
+      <div>
+        <h1>Token Radar</h1>
+        <p class="tagline">Pre-token protocols, ranked by what a launch would be worth.</p>
+      </div>
+    </div>
+    <dl class="mast-meta" id="mastMeta"></dl>
+  </div>
+</header>
+
+<main>
+  <section class="stats" id="stats" aria-label="Board summary"></section>
+  <p class="funnel"><b>758</b> protocols in the snapshot &rarr; <b>342</b> record no token &rarr; <b>177</b> ranked &middot; <b>165</b> set aside as wrapped, staked, bridged, versioned or child products.</p>
+
+  <section class="validation" id="validation" aria-label="Validation"></section>
+  <section class="accounting" id="accounting" aria-label="Full snapshot accounting"></section>
+  <p class="selfcheck" id="selfcheck" aria-live="polite"></p>
+
+  <p class="model-line" id="modelLine"></p>
+
+  <section class="controls" aria-label="Filter and sort">
+    <div class="tabs" role="tablist" aria-label="Board view">
+      <button type="button" role="tab" id="tabPre" aria-selected="true">Pre-token radar</button>
+      <button type="button" role="tab" id="tabTraded" aria-selected="false">Already trading</button>
+    </div>
+    <div class="filters">
+      <label>Search <input type="search" id="q" placeholder="Protocol name or slug" autocomplete="off"></label>
+      <label>Category <select id="cat"><option value="all">All categories</option></select></label>
+      <label>Chain <select id="chain"><option value="all">All chains</option></select></label>
+      <label>Sort by
+        <select id="sort">
+          <option value="rank">Rank</option>
+          <option value="implied_value_usd">Implied value</option>
+          <option value="expected_value_usd">Expected value</option>
+          <option value="odds">Launch odds</option>
+          <option value="tvl_usd">TVL</option>
+          <option value="change_7d">7d change</option>
+          <option value="category">Category</option>
+          <option value="chains">Chain</option>
+        </select>
+      </label>
+      <label>Capital <select id="capital">
+        <option value="100">$100</option>
+        <option value="1000">$1,000</option>
+        <option value="10000">$10,000</option>
+      </select></label>
+      <label>Airdrop share <select id="share">
+        <option value="0.05">5%</option>
+        <option value="0.10">10%</option>
+        <option value="0.20">20%</option>
+      </select></label>
+      <button type="button" class="csv-btn" id="csvBtn">Export CSV</button>
+      <label class="check"><input type="checkbox" id="watchOnly"> Watchlist only</label>
+    </div>
+    <p class="count" id="count" aria-live="polite"></p>
+  </section>
+
+  <section class="board-wrap">
+    <table id="board">
+      <thead><tr>
+        <th data-sort="rank" aria-sort="ascending">Rank</th>
+        <th data-sort="name">Protocol</th>
+        <th data-sort="implied_value_usd" class="num">Implied value</th>
+        <th data-sort="odds" class="num">Odds</th>
+        <th data-sort="tvl_usd" class="num">TVL</th>
+        <th data-sort="change_7d" class="num">7d</th>
+        <th data-sort="multiple" class="num">Combined</th>
+        <th data-sort="category">Category</th>
+        <th data-sort="chains">Chains</th>
+        <th data-sort="age_days" class="num">Age</th>
+        <th>Verdict</th>
+      </tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p class="empty" id="empty" hidden>No protocols match this filter. Clear the search or widen the category.</p>
+  </section>
+
+  <section class="chart" id="chart" aria-label="Top 10 by implied value"></section>
+
+  <section class="portfolio" id="portfolio" aria-label="Plan my farm">
+    <h2>Plan my farm</h2>
+    <p class="plan-note" id="planNote"></p>
+    <div class="plan-inputs">
+      <label>Capital per farm <span class="money-input">$<input type="number" id="planCapital" min="50" step="50" inputmode="numeric"></span></label>
+      <label>Hours / week <input type="number" id="planHours" value="5" min="0" step="0.5" inputmode="decimal"></label>
+    </div>
+    <div id="planList"></div>
+  </section>
+
+  <section class="method" aria-label="How the ranking works">
+    <h2>How the ranking works</h2>
+    <p id="modelText"></p>
+    <p>Eligibility: a protocol records no token at all. The board ranks all 40 watchlist names plus every pre-token protocol below the $50M floor that passes the eligibility test — 137 of them in this snapshot, 177 rows in all. Excluded are wrapped, staked or bridged products of a token that already trades: the Bridge, Canonical Bridge, Liquid Staking, Liquid Restaking, Restaked BTC and CEX categories, versioned duplicate pools (a name ending in V2/v2/2.0), and any name carrying restak, stak or wrapped — none of those is a standalone launch. Protocols whose token already trades are set aside, never ranked; the "Already trading" tab shows the top 24 of them at their market cap, so the board never mixes a model's claim with a market price.</p>
+    <p class="fine">Source: the sealed DefiLlama snapshot of 14 November 2026 (758 protocols). Implied value is this entry's own claim from those figures — it does not predict whether or when any token is issued. A protocol "records no token" in DefiLlama; that is not proof it has none. Farm steps are generic DeFi actions with typical costs; check gas and contract addresses before moving funds.</p>
+  </section>
+</main>
+
+<div class="drawer-backdrop" id="drawerBackdrop" hidden></div>
+<aside class="drawer" id="detail" hidden aria-label="Protocol detail"></aside>
+
+<footer><p>Token Radar — built from the sealed snapshot. No network: every figure on this page ships in data.js.</p></footer>
+
+<script src="../data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
