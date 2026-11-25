@@ -22,7 +22,8 @@
 
 <main>
   <section class="stats" id="stats" aria-label="Board summary"></section>
-  <p class="funnel"><b>758</b> protocols in the snapshot &rarr; <b>342</b> record no token &rarr; <b>197</b> ranked &middot; <b>145</b> set aside as wrapped, staked, bridged, versioned or child products.</p>
+  <p class="strip" id="strip"></p>
+  <p class="funnel"><b>758</b> protocols &rarr; <b>342</b> record no token &rarr; <b>197</b> ranked &middot; <b>145</b> set aside as wrapped, staked, bridged, versioned or child products.</p>
   <p class="selfcheck" id="integrity" aria-live="polite"></p>
 
   <section class="controls" aria-label="Filter and sort">
@@ -68,11 +69,12 @@
 
   <section class="board-wrap">
     <table id="board">
-      <colgroup><col style="width:6%"><col style="width:17%"><col style="width:13%"><col style="width:5%"><col style="width:7%"><col style="width:7%"><col class="mult" style="width:8%"><col style="width:7%"><col class="chains" style="width:7%"><col class="age" style="width:5%"><col style="width:6%"><col class="net" style="width:5%"><col class="net" style="width:7%"></colgroup>
+      <colgroup><col style="width:5%"><col style="width:15%"><col style="width:12%"><col style="width:9%"><col style="width:5%"><col style="width:7%"><col style="width:6%"><col class="mult" style="width:7%"><col style="width:7%"><col class="chains" style="width:7%"><col class="age" style="width:5%"><col style="width:5%"><col class="net" style="width:5%"><col class="net" style="width:5%"></colgroup>
       <thead><tr>
         <th data-sort="rank" aria-sort="ascending">Rank</th>
         <th data-sort="name">Protocol</th>
         <th data-sort="implied_value_usd" class="num">Implied value</th>
+        <th data-sort="p25_usd" class="num">Range (P25–P75)</th>
         <th data-sort="odds" class="num">Odds</th>
         <th data-sort="tvl_usd" class="num">TVL</th>
         <th data-sort="change_7d" class="num">7d</th>
@@ -89,13 +91,10 @@
     <p class="empty" id="empty" hidden>No protocols match this filter. Clear the search or widen the category.</p>
   </section>
 
+  <section class="evidence" id="evidence" aria-label="Evidence"></section>
   <section class="validation" id="validation" aria-label="Validation"></section>
   <section class="accounting" id="accounting" aria-label="Full snapshot accounting"></section>
   <p class="selfcheck" id="selfcheck" aria-live="polite"></p>
-
-  <p class="model-line" id="modelLine"></p>
-
-  <section class="chart" id="chart" aria-label="Top 10 by implied value"></section>
 
   <section class="portfolio" id="portfolio" aria-label="Plan my farm">
     <h2>Plan my farm</h2>
@@ -110,8 +109,8 @@
   <section class="method" aria-label="How the ranking works">
     <h2>How the ranking works</h2>
     <p id="modelText"></p>
-    <p>Eligibility: a protocol records no token at all. The board ranks all 40 watchlist names plus every pre-token protocol outside the watchlist that passes the eligibility test — 157 of them in this snapshot, 197 rows in all. The watchlist is the floor, not the ceiling: twenty above-floor protocols pass the same test and rank at the same curve value, no discount — every snapshot-testable reason the house watchlist might omit them (category, version, name, exchange-name beginning, parent-name linkage, duplication) was tested and fails, and no figure in the snapshot sets a haircut for them. Excluded are wrapped, staked or bridged products of a token that already trades: the Bridge, Canonical Bridge, Liquid Staking, Liquid Restaking, Restaked BTC and CEX categories, versioned duplicate pools (a name ending in V2/v2/2.0), and any name carrying restak, stak or wrapped — none of those is a standalone launch. Protocols whose token already trades are set aside, never ranked; the "Already trading" tab shows the top 24 of them at their market cap, so the board never mixes a model's claim with a market price.</p>
-    <p class="fine">Source: the sealed DefiLlama snapshot of 14 November 2026 (758 protocols). Implied value is this entry's own claim from those figures — it does not predict whether or when any token is issued. A protocol "records no token" in DefiLlama; that is not proof it has none. Farm steps are generic DeFi actions with typical costs; check gas and contract addresses before moving funds.</p>
+    <p>Eligibility: a protocol records no token at all. The board ranks all 40 watchlist names plus every pre-token protocol outside the watchlist that passes the test — 157 of them, 197 rows in all. The watchlist is the floor, not the ceiling: twenty above-floor protocols pass the same test and rank at the same curve value, no discount. Excluded are wrapped, staked or bridged products of a token that already trades (Bridge, Canonical Bridge, Liquid Staking, Liquid Restaking, Restaked BTC, CEX; versioned duplicate pools; names carrying restak, stak or wrapped). Protocols whose token already trades are set aside, never ranked; the "Already trading" tab shows the top 24 at market cap.</p>
+    <p class="fine">Source: the sealed DefiLlama snapshot of 14 November 2026 (758 protocols). Implied value is this entry's own claim from those figures — it does not predict whether or when any token is issued. A protocol "records no token" in DefiLlama; that is not proof it has none. Farm steps are generic DeFi actions; check gas and contract addresses before moving funds.</p>
   </section>
 </main>
 
