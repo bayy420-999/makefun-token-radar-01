@@ -1,4 +1,4 @@
-# Token Radar — the value model (radar-6)
+# Token Radar — the value model (radar-7)
 
 The board ranks protocols that record no token by an **implied launch
 value**: what a token would be worth if the protocol's record stayed as it
@@ -8,7 +8,7 @@ function scores every row. Coverage is full: every pre-token protocol
 that passes the eligibility test is ranked, 197 rows — the 40 watchlist
 slugs plus 157 outside the watchlist, including 20 above the $50M floor
 that the early board left out. The estimator is the radar-5 log-log curve
-plus the fitted growth/age coefficients at 0.05× strength (radar-6);
+plus the fitted growth/age coefficients at 0.05× strength (radar-7);
 the curve itself is unchanged, and every validation number below is
 recomputed from the snapshot on every run.
 
@@ -18,10 +18,10 @@ recomputed from the snapshot on every run.
 implied_value_usd = TVL × curve_multiple × growth_factor × maturity_factor
 curve_multiple    = exp(6.9646 + (0.5223 − 1) × ln(TVL))
 growth_factor     = clamp(exp(0.05 × β_g × growth), 0.50, 2.00), β_g = −3.9059
-maturity_factor   = clamp(exp(0.05 × β_a × age_years), 0.50, 2.00), β_a = −0.5312
+maturity_factor   = clamp(exp(0.05 × β_a × min(age_days, 1095) / 1095), 0.50, 2.00), β_a = −0.5312
 ```
 
-radar-6 fits a log-log curve by ordinary least squares on the snapshot's
+radar-7 fits a log-log curve by ordinary least squares on the snapshot's
 128 tokenized comps, on every run: `log(mcap) = 6.9646 + 0.5223 × log(TVL)`
 (R² 0.19). The slope is below 1, so a bigger TVL is priced at a lower
 multiple: the market pays relatively less per TVL dollar as protocols
@@ -36,13 +36,14 @@ flat global median by 33%, so the peer multiples are replaced, not kept.
 The growth and maturity factors are the fitted growth/age coefficients
 at 0.05× strength — the shrinkage ladder's accepted rung (see §2–§3).
 `growth` is the 7-day change as a fraction, clamped to −60%/+120%, with
-a missing 7-day change at −8.23% (the training median); `age_years` is
-the years since `listed_at`, with an undated protocol at 1.8535 years
-(the pre-token median). Each factor is clamped to 0.50–2.00, so neither
-can move a value by more than 2×. No row hits either clamp on this
-snapshot. The median implied value is 1.0753× the curve alone — the
-growth/age terms shift the median only slightly, which is the point:
-they are a small, measured adjustment, not a second model.
+a missing 7-day change at −8.23% (the training median); maturity uses
+the capped age fraction `min(age_days, 1095) / 1095`, with an undated
+protocol at 513 days (1.4045 years, the pre-token median). Each factor
+is clamped to 0.50–2.00, so neither can move a value by more than 2×.
+No row hits either clamp on this snapshot. The median implied value is
+0.9975× the curve alone — the growth/age terms shift the median only
+slightly, which is the point: they are a small, measured adjustment, not
+a second model.
 
 Worked examples from this snapshot (computed, not assumed):
 
@@ -104,7 +105,7 @@ older half alone, a 3× swing, with an implausible magnitude (a +100%
 week would price a token at ×0.02). A week's TVL move is noise at this
 horizon — but the walk-forward test says the opposite (×3.04 → ×2.81):
 growth helps the newer half and hurts leave-one-out. It is
-regime-dependent, so radar-6 does not trust it at full strength and
+regime-dependent, so radar-7 does not trust it at full strength and
 does not drop it either: it ships at 0.05× the fitted coefficient
 (β_g = −3.9059, fitted jointly with age), the accepted rung of the
 shrinkage ladder (0.25 → LOO ×3.6357 / WF ×3.6535, fails both caps;
@@ -168,13 +169,14 @@ median |log error|.
 | Log-log + category factors k=6 | 3.7775 | 1.3284 |
 | Log-log + growth | 3.7632 | 1.3253 |
 | Full radar-3 (peer × growth × maturity) | 5.7313 | 1.7456 |
-| Log-log + shrunk growth/age (radar-6, ×0.05) | 3.4314 | — |
+| Log-log + shrunk growth/age (radar-7, ×0.05) | 3.4314 | — |
 
 The decisions follow the rule set before the test — drop a term unless it
 improves the LOO median fold error; adopt the chain factor only on a ≥5%
 improvement with a monotone sensible effect; adopt a new estimator only
 if it beats flat by ≥5% on BOTH leave-one-out and the time split; and
-the radar-6 addition — a shrunk term is adopted only if it stays within
+the shrunk-term rule, added in radar-6 and kept in radar-7 — a shrunk
+term is adopted only if it stays within
 2% of the curve on BOTH tests (LOO ≤ ×3.4667, WF ≤ ×3.1007):
 
 - **Growth: shrunk, not dropped, not trusted.** At full strength it
@@ -226,7 +228,7 @@ newer half:
 | Model | Median fold error |
 | --- | --- |
 | radar-5 log-log (older-fit curve) | 3.0413 |
-| radar-6 shrunk growth/age (older-fit) | 2.7641 |
+| radar-7 shrunk growth/age (older-fit) | 2.7641 |
 | Flat global median (older-fit) | 5.3090 |
 | Peer-only (older-fit medians) | 5.2043 |
 | radar-3 (older-fit peers) | 5.8006 |
@@ -273,7 +275,7 @@ growth, age, category and family has a token recorded, estimated from
 the snapshot's own record (tokenized vs pre-token among the 758), and
 `expected_value_usd = round(implied_value_usd × odds)`.
 
-Method (radar-6, model v2c): a logistic regression on all 758 protocols,
+Method (radar-7, model v2c): a logistic regression on all 758 protocols,
 fitted on every run —
 
 ```
@@ -284,7 +286,7 @@ logit P(token) = −2.8114 + 0.1098·logTVL − 1.8512·growth + 0.4528·age_yea
 `growth` is the 7-day change as a fraction, clamped to −60%/+120%,
 with a missing 7-day change at −8.23% (the training median);
 `age_years` is the years since `listed_at`, with an undated protocol at
-1.8535 years (the pre-token median). The category and family offsets are
+1.8535 years (the all-protocol median). The category and family offsets are
 count-shrunk toward the base rate with prior strength k=3:
 `offset = logit((t + k·p0)/(n + k)) − logit(p0)`, where `p0 = 0.5488`
 is the overall token rate (416 of 758) and `t`/`n` are the tokenized
@@ -308,9 +310,9 @@ stage (758 protocols, leave-one-out / walk-forward):
 | + age (years listed) | 0.1845 | 0.2180 | kept, k=3 — all k pass |
 | + log chains | 0.1822 | 0.2192 | dropped — WF worsens |
 
-The shipped model is the stage-6 fit (Brier **0.1845** leave-one-out /
+The shipped model is the stage-5 fit (Brier **0.1845** leave-one-out /
 **0.2180** walk-forward) against the radar-5 cell baseline of 0.2075 /
-0.2836 and the base rate's 0.2483 / 0.3176 — a 41.9% improvement over
+0.2836 and the base rate's 0.2483 / 0.3176 — a 31.4% improvement over
 the base rate on walk-forward. Stage 4 is the k=3 near-miss: the offsets
 look attractive but the category counts are too thin to trust, so the
 shipped model uses k=3 shrinkage and stops one stage short of the best
@@ -364,7 +366,9 @@ Coverage, measured on the same 128 comps: the shipped P10–P90 bands
 P25–P75 bands hold **52.3%** (67 of 128); the all-global P25–P75 band
 holds **50.0%** (64 of 128). The per-category bands cover slightly worse
 than the global band — they are noisier at n=11–15 — and that is
-reported rather than rounded away.
+reported rather than rounded away. The median leave-one-out residual
+factor is **×1.0753**: the median comp's actual value sits 7.5% above
+the curve's prediction.
 
 A note on the 78.9%: the spec's 80.5% (103 of 128) comes from the
 hat-matrix leave-one-out; the build refits exactly, as radar-5 did, and
@@ -505,7 +509,7 @@ a stated argument. The default was removal; removal is unavailable for
 three of the four, and no generic rule removes the fourth — both facts
 are part of the audit, not footnotes to it.
 
-- **Saturn** (Stablecoin Wrapper, rank 22, Ethereum/Monad/Binance,
+- **Saturn** (Stablecoin Wrapper, rank 27, Ethereum/Monad/Binance,
   $154M TVL, listed 2026-04-09). Kept. The "wrapper" wraps off-chain
   credit into Saturn's own stablecoin: DefiLlama describes it as a
   dual-token Bitcoin-backed credit protocol, USDat a stablecoin backed by
@@ -518,14 +522,14 @@ are part of the audit, not footnotes to it.
   token for Saturn. The category name alone does not make a protocol a
   wrapped product of one that trades, any more than "Staking Pool" does
   for Adrastea and Qearn above.
-- **Doppler Finance** (CeDeFi, rank 30, Ripple/Ethereum, $93M TVL,
+- **Doppler Finance** (CeDeFi, rank 38, Ripple/Ethereum, $93M TVL,
   listed 2025-02-14). Kept. CeDeFi yield vaults for XRP and RLUSD under
   institutional custody: XRP has no staking mechanism, and the vaults
   pay yield in the deposited asset rather than issuing a receipt token
   that trades. It is a custody-and-strategy business, not a wrapped or
   staked product of a trading token; CeDeFi is not in the excluded
   category set, the name carries no marker, and it passes every leg.
-- **Goose** (CeDeFi, rank 121, Binance/Op_Bnb/Arbitrum/Ethereum,
+- **Goose** (CeDeFi, rank 141, Binance/Op_Bnb/Arbitrum/Ethereum,
   $12.8M TVL, listed 2024-11-14). Kept. Same category as Doppler, same
   treatment: the category is not excluded, the name carries no marker,
   and it passes every leg. No generic rule separates Goose from Doppler
@@ -534,7 +538,7 @@ are part of the audit, not footnotes to it.
   The snapshot's Goose is the CeDeFi stablecoin-staking platform (its
   four chains match that platform's footprint), not the older
   single-chain BSC Goose Finance (EGG) farm that shares the name.
-- **Armitage by Wintermute** (Risk Curators, rank 29, Ethereum only,
+- **Armitage by Wintermute** (Risk Curators, rank 35, Ethereum only,
   $103M TVL, listed 2026-05-20). Kept. A vault curator on Morpho — the
   same category as the board's #1 (Steakhouse Financial) and #2
   (Gauntlet), the same shape: a curator's vaults, not a wrapped product.
@@ -591,7 +595,8 @@ moving funds.
   the deposit at which gas is at most 10% (floored at $50), then one
   recompute at that deposit. The 2×-cover rule is the spec's sizing:
   the plan is built to pay twice over at the expected value, not to
-  maximise the deposit. Most rows size at the $10,000 cap.
+  maximise the deposit. Only 6 of 197 rows size at the $10,000 cap
+  (median sized deposit $423).
 - **Gross.** `(deposit / TVL) × value × 0.10 × 3`: the deposit's share of
   the protocol's TVL times the launch value times `AIRDROP_SHARE = 0.10`
   (an explicit assumption, stated as one: 10% of the implied launch
@@ -617,37 +622,79 @@ moving funds.
 - **Verdict — at the row's own sized deposit, two views.** The shipped
   verdict is evaluated at the sized deposit, not at a fixed reference
   capital: `verdict` is the P10 net, `verdict_expected` the expected
-  net. Thresholds: FARM when `net > $50` AND `net/hour > $5`; THIN when
-  `net > $0`; SKIP otherwise. The dashboard's Verdict/Net columns
-  recompute the same arithmetic at the capital the reader selects
-  ($100 / $1,000 / $10,000); the detail drawer shows both the shipped
-  sized-deposit plan (the budget line) and the selected-capital plan.
+  net. Thresholds: FARM when `net > $50` AND `net/hour > $5`; MARGINAL
+  when `net > $0` AND `net/hour > $2` (a subdivision of THIN — "worth
+  an hour" versus "barely positive"); THIN when `net > $0`; SKIP
+  otherwise. The dashboard's Verdict/Net columns recompute the same
+  arithmetic at the capital the reader selects ($1,000 / $2,000 /
+  $5,000 / $10,000, default $5,000); the detail drawer shows both the
+  shipped sized-deposit plan (the budget line) and the selected-capital
+  plan. The budget line also carries `farm_flip_usd` — the deposit at
+  which the row's expected net clears the FARM bar (see below).
   `deposit_needed_usd` is the deposit at which a capped SKIP row would
   pay (2-iteration estimate; see below).
 
 The honest result on this snapshot: **at the sized deposits, the
-expected verdict is 0 FARM / 188 THIN / 9 SKIP, and the P10 verdict is
-0 FARM / 42 THIN / 155 SKIP.** No row farms at its sized deposit. The
-reason is the sizing rule itself, not the cost numbers: sizing to the
-minimum 2×-cover deposit caps the net at roughly the costs ($3–13), and
-the FARM bar is $50 net and $5/hour. At a fixed $5,000 deposit the same
-cost model gives 129 FARM / 55 MARGINAL / 4 THIN / 9 SKIP — the costs
-are not what blocks farming, the sizing is. The spec's acceptance rule
-says to stop and report a 0 FARM count rather than tune the sizing to
-compensate, and that is what this build does: the sizing is kept
-faithful and the 0 FARM is reported with this diagnosis. The portfolio
-acceptance is still met — the top 5 by expected net/hour at the sized
-deposit are all positive (USDD +$7/hr, BIMA CDP +$7/hr, Upshift +$5/hr,
-CIAN +$5/hr, Plume +$5/hr).
+expected verdict is 0 FARM / 83 MARGINAL / 105 THIN / 9 SKIP (0 FARM /
+188 THIN / 9 SKIP in 3 tiers), and the P10 verdict is 0 FARM / 26
+MARGINAL / 16 THIN / 155 SKIP (0 / 42 / 155 in 3 tiers).** No row farms
+at its sized deposit. The reason is the sizing rule itself, not the
+cost numbers: sizing to the minimum 2×-cover deposit caps the net at
+roughly the costs ($3–13), and the FARM bar is $50 net and $5/hour.
+At a fixed $5,000 deposit the same cost model gives 129 FARM / 55
+MARGINAL / 4 THIN / 9 SKIP (129 / 59 / 9 in 3 tiers) — the costs are
+not what blocks farming, the sizing is. The $5,000 reference is the
+dashboard's default view: the Verdict/Net columns, the header counts
+and the portfolio all run at $5,000 unless the reader selects another
+capital. At $5,000 the P10 view also discriminates: 24 FARM / 133 THIN
+/ 40 SKIP (3 tiers), and only 1 of the top 10 by value is FARM
+(Polymarket International, +$69 net, +$39/h); 128 of the 129 FARM rows
+sit at ranks 11–197. The 9 SKIP rows at $5,000 are Steakhouse
+Financial, Sentora Curator, Gauntlet, Nonce Capital, RockawayX, Galaxy
+Curation, Stellar DeFi Hub, Shift DeFi and August Digital.
+
+Each row also carries `farm_flip_usd`: the smallest whole-dollar
+deposit at which its expected net clears the FARM bar, solved exactly
+from the linear net function `net(D) = D × rate − fixed`, where `rate`
+is the net rate per deposit-dollar (gross rate − swap rate −
+opportunity rate) and `fixed` is the deposit-independent fixed cost.
+It is null when the net rate is ≤ 0 — no deposit ever farms that row
+(Stellar DeFi Hub is the only one: a 60-day hold on a 0%-yield
+position, opportunity rate 0.684% against a gross rate of 0.498%).
+160 rows flip at a deposit within the $10,000 cap; the upper-median flip is
+$2,824. The smallest flips are MetalX Swap $391, Katana DEX $415,
+SyncSwap $462, Vesu $519 and FstSwap $524. The top 5 farms by expected
+net/hour at the $5,000 reference are MetalX Swap +$672 net (+$384/h),
+Katana DEX +$633 (+$362/h), SyncSwap +$591 (+$322/h), Vesu +$505
+(+$289/h) and FstSwap +$500 (+$286/h).
+
+What was rejected, stated so it is not re-tried: sizing the deposit to
+manufacture FARM rows. An 8×-cover sizing gives 37 FARM but the 8×
+cover has no planning justification (5× gives a best net of $49, $1
+short of the bar — the honest result); a target-net sizing ($55)
+manufactures 160 FARM by construction; EV-proportional sizing's FARM
+count tracks its arbitrary factor (47 → 90 → 117). The 2×-cover sizing
+and the $50/$5 FARM bar are unchanged, and the 0 FARM at the sized
+deposits is reported with this diagnosis rather than tuned away. The
+dashboard carries no top-10 concentration chart (dropped for the
+dossier byte budget — the top-10 share, 23.5%, is stated in the
+accounting section); the detail drawer is present and renders every
+row's budget line, steps and farm economics.
 
 The largest gross at P10 on the whole board is $52 (August Digital),
 and the best net at P10 is $41 (August Digital) after gas and
 opportunity cost. The best net at the expected value is $13 (BIMA CDP)
-and the best net/hour $7 (USDD). `deposit_needed_usd` is honest for 4
-of the 6 capped rows (net +$1 to +$6 at the needed deposit); Sentora
-(−$3 at $23,089) and August Digital (−$4 at $22,502) are $3–4 short —
-the spec's 2-iteration formula prices the costs at the $50 minimum, so
-it understates the true fixed-point deposit (~$29,143 / ~$28,000).
+and the best net/hour $7 (USDD). `deposit_needed_usd` is honest for 3
+of the 6 capped rows (net +$1 to +$6 at the capped $10,000 deposit):
+Steakhouse +$1, RockawayX +$6, Galaxy +$6; Nonce Capital nets exactly
+$0 there, and Sentora (−$3) and August Digital (−$4) are $3–4 short.
+At the needed deposits themselves the rows do break even — Sentora
+nets +$7 at $23,089 and August Digital +$3 at $22,502 — but what they
+fail is the 2×-cover bar: the spec's 2-iteration formula prices the
+costs at the $50 minimum, so it understates the true fixed-point
+deposit (~$34,057 for Sentora, ~$78,093 for August Digital; one more
+iteration gives $30,524 / $38,506, and the break-evens are ~$14,108 /
+~$16,924).
 The thresholds were not moved to manufacture a spread — the columns
 say what they say, and the detail view shows both the P10 and the
 expected net side by side.

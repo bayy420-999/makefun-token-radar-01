@@ -1,9 +1,7 @@
-// Token Radar dashboard (radar-6). Reads window.RADAR (data.js): pre-token
+// Token Radar dashboard (radar-7). Reads window.RADAR (data.js): pre-token
 // rows by implied value + 24 traded protocols at market cap. No network.
 // implied = TVL x curve x growth x maturity (§1.2, 0.05x, clamp 0.50-2.00);
-// farm gross scales with deposit x share x 3, costs are fixed plan costs +
-// swap rate + T-bill opportunity net of yield. At a row's sized deposit and
-// 10% share the shipped cost_plan is used verbatim. See MODEL.md.
+// See MODEL.md.
 (function () {
 'use strict';
 var DATA = window.RADAR;
@@ -84,14 +82,11 @@ function looVal(name) {
   var v = ((DATA.validation || {}).loo || []).find(function (x) { return x.variant === name; });
   return v ? v.median_fold_error : null;
 }
-// planOf (§4.3/§4.4): gross = (dep/TVL) x value x share x 3; costs =
-// fixed plan costs + swap rate x dep + T-bill opportunity (4.16% net of
-// yield) x dep x hold/365. FARM when net > $50 and net/h > $5, THIN when
-// net > $0, else SKIP. At the sized deposit + 10% share, shipped verbatim.
 var TBILL = 0.0416, ACT_MULT = 3;
-function verdictOf(net, perHour) { return (net > 50 && perHour > 5) ? 'FARM' : (net > 0 ? 'THIN' : 'SKIP'); }
-// Verdict view: expected-net by default (188 THIN / 9 SKIP at the sized
-// deposits), P10 on toggle (0 FARM / 42 THIN / 155 SKIP).
+function verdictOf(net, perHour) { return (net > 50 && perHour > 5) ? 'FARM' : (net > 0 && perHour > 2 ? 'MARGINAL' : (net > 0 ? 'THIN' : 'SKIP')); }
+// Verdict view: expected-net by default (0 FARM / 83 MARGINAL / 105 THIN /
+// 9 SKIP at the sized deposits), P10 on toggle (0 FARM / 26 MARGINAL / 16
+// THIN / 155 SKIP).
 function viewVerdict(p) { return state.verdict === 'exp' ? p.verdictExp : p.verdictP10; }
 function planOf(r, dep, share) {
   var c = r.cost_plan, hrs = c.time_minutes / 60;
@@ -112,7 +107,6 @@ function planOf(r, dep, share) {
     gas: gas, opp: opp, verdictP10: vP10, verdictExp: vExp };
 }
 var $ = function (id) { return document.getElementById(id); };
-// ---- masthead + summary (real numbers from the data) ----
 var watchCount = DATA.rows.filter(function (r) { return r.watchlist; }).length;
 var totalImplied = DATA.rows.reduce(function (a, r) { return a + r.implied_value_usd; }, 0);
 var top10Sum = DATA.rows.slice(0, 10).reduce(function (a, r) { return a + r.implied_value_usd; }, 0);
@@ -122,10 +116,7 @@ $('mastMeta').innerHTML =
   '<div><dt>Model</dt><dd>' + esc(DATA.model_version) + '</dd></div>' +
   '<div><dt>Data</dt><dd>offline · data.js</dd></div>';
 var v0 = DATA.validation || {}, o0 = v0.odds || {}, cov0 = v0.coverage || {};
-// 8th stat: the SHIPPED expected verdicts (sized deposits, not the
-// selected capital).
-var expFarm0 = DATA.rows.filter(function (r) { return r.cost_plan.verdict_expected === 'FARM'; }).length;
-var expThin0 = DATA.rows.filter(function (r) { return r.cost_plan.verdict_expected === 'THIN'; }).length;
+var farmV = v0.farm || {}, refC = (farmV.reference_counts || {})[REF_CAP] || {};
 $('stats').innerHTML =
   '<div class="stat"><b>' + DATA.rows.length + '</b><span>protocols ranked</span></div>' +
   '<div class="stat"><b>' + watchCount + ' / ' + DATA.watchlist_size + '</b><span>watchlist covered</span></div>' +
@@ -134,17 +125,15 @@ $('stats').innerHTML =
   '<div class="stat"><b>×' + (looVal('log-log OLS (radar-5)') || 0).toFixed(2) + '</b><span>leave-one-out miss</span></div>' +
   '<div class="stat"><b>' + (o0.brier_model != null ? o0.brier_model.toFixed(3) : 'n/a') + '</b><span>odds Brier (base ' + (o0.brier_base != null ? o0.brier_base.toFixed(3) : 'n/a') + ')</span></div>' +
   '<div class="stat"><b>' + (cov0.coverage_pct != null ? cov0.coverage_pct : '?') + '%</b><span>P10–P90 bands hold · ' + (cov0.p25_p75_coverage_pct != null ? cov0.p25_p75_coverage_pct : '?') + '% P25–P75</span></div>' +
-  '<div class="stat"><b>' + expFarm0 + ' FARM</b><span>at expected net · ' + expThin0 + ' THIN</span></div>';
+  '<div class="stat"><b>' + (refC.farm || 0) + ' FARM</b><span>at $' + REF_CAP.toLocaleString('en-US') + ' reference · ' + (farmV.farmable_within_10k || 0) + ' farmable ≤ $10k</span></div>';
 // Evidence strip: the headline held-out numbers, one line, always visible.
 var sm = (v0.shrunk_model || {});
-$('strip').innerHTML = 'LOO ×' + (looVal('log-log OLS (radar-5)') || 0).toFixed(2) +
+$('strip').innerHTML = 'LOO ×' + (sm.loo != null ? sm.loo.toFixed(2) : (looVal('log-log OLS (radar-5)') || 0).toFixed(2)) +
   ' · odds Brier ' + (o0.brier_model != null ? o0.brier_model.toFixed(3) : 'n/a') + ' LOO / ' + (o0.brier_model_wf != null ? o0.brier_model_wf.toFixed(3) : 'n/a') + ' WF' +
   ' · P25–P75 ' + (cov0.band_width_x != null ? cov0.band_width_x.toFixed(1) : '?') + '× wide' +
-  ' · 52 signals, 0 kept' +
-  (sm.shrink != null ? ' · growth/age ×' + sm.shrink : '');
+  ' · 52 signals tested, 0 value terms kept' +
+  ' · ' + (farmV.farmable_within_10k || 0) + ' rows farmable ≤ $10k';
 $('modelText').textContent = DATA.model + ' The value uses TVL, 7-day growth and age; the odds use TVL, growth, age and shrunk cat/fam offsets. No name is special-cased.';
-// Evidence (§5.2/§5.7): held-out tables from data.js's validation block.
-// E1/E2 are the spec's verbatim tables (E2 stage 4 is the k=3 near-miss).
 function evTable(title, heads, rows) {
   var h = '<h3>' + title + '</h3><table class="loo"><thead><tr>' + heads.map(function (x) { return '<th>' + x + '</th>'; }).join('') + '</tr></thead><tbody>';
   rows.forEach(function (r) { h += '<tr>' + r.map(function (c, i) { return '<td' + (i > 0 ? ' class="num"' : '') + '>' + c + '</td>'; }).join('') + '</tr>'; });
@@ -159,14 +148,14 @@ function renderEvidence() {
   h += evTable('E1 · Value model — held-out miss by stage',
     ['Stage', 'LOO', 'WF', 'Verdict'],
     vs.map(function (s) { return [s.model, '×' + s.loo.toFixed(4), '×' + s.wf.toFixed(4), s.decision]; }));
-  h += '<p class="ev-note">Quadratic sensitivity: a free quadratic in log TVL improves LOO to ×3.3760 and WF to ×2.6704, but a bootstrap finds it better only 40% of the time — a coin flip. 52 signals tested; 0 terms kept — every one fails the both-tests rule. Shipped: the curve plus the fitted growth/age coefficients at 0.05× strength (LOO ×3.4314 / WF ×2.7641), each multiplier clamped to 0.50–2.00. The chain-count row is cumulative (curve + category + family + growth + age + chains, ridge λ=8); a chain-only OLS re-run gives LOO ×3.8044 / WF ×3.0285 — same conclusion.</p>';
+  h += '<p class="ev-note">Quadratic sensitivity: a free quadratic improves LOO to ×3.3760 / WF ×2.6704, but a bootstrap finds it better only 40% of the time. 52 signals tested, 0 kept — every one fails the both-tests rule. Shipped: curve + fitted growth/age at 0.05× (LOO ×3.4314 / WF ×2.7641), multipliers clamped 0.50–2.00. Chain-count row is cumulative; a chain-only OLS gives LOO ×3.8044 / WF ×3.0285 — same conclusion.</p>';
   // E2: the spec's verbatim odds table. data.js ships {stage, model,
   // loo, wf, decision}; the k values live in the decision strings (the
   // k=3 near-miss is stage 4, the family-offset row).
   h += evTable('E2 · Odds model — Brier by stage',
     ['Stage', 'LOO', 'WF', 'Verdict'],
     os.map(function (s) { return [s.model, s.loo.toFixed(4), s.wf.toFixed(4), s.decision]; }));
-  h += '<p class="ev-note">Baseline: a per-category cell with age (the radar-5 odds) scores 0.2075 LOO / 0.2836 WF; the shipped model scores 0.1845 / 0.2180. Stage 4 is the k = 3 near-miss — the category counts are too thin to trust, so the shipped model stops one stage short of the best Brier. Growth is clamped to −60%/+120%; a missing 7-day change is −8.23%.</p>';
+  h += '<p class="ev-note">Baseline (radar-5 odds): 0.2075 LOO / 0.2836 WF; shipped: 0.1845 / 0.2180. Stage 4 is the k = 3 near-miss — category counts too thin to trust. Growth clamped −60%/+120%; missing 7-day change −8.23%.</p>';
   var bandRows = [['All protocols', '×' + (co.band_width_x != null ? co.band_width_x.toFixed(1) : '?'), (co.p25_p75_coverage_pct != null ? co.p25_p75_coverage_pct : '?') + '%', (co.coverage_pct != null ? co.coverage_pct : '?') + '%']];
   (co.per_category_bands || []).forEach(function (b) { bandRows.push([b.category, '×' + (b.q75 / b.q25).toFixed(2), '—', '—']); });
   h += evTable('E3 · Range bands',
@@ -174,22 +163,24 @@ function renderEvidence() {
   var wk = DATA.rows.filter(function (r) { return r.rank <= 5; }).slice(0, 3);
   h += '<p class="ev-note">Worked rows: ' + wk.map(function (r) {
     return r.name + ' ' + fmtUsd(r.p25_usd) + '–' + fmtUsd(r.p75_usd) + ' (' + (r.p75_usd / r.p25_usd).toFixed(1) + '×) around ' + fmtUsd(r.implied_value_usd);
-  }).join('; ') + '. The shipped P10–P90 bands hold on 78.9% of comps (the spec’s 80.5% is the hat-matrix LOO; the build refits exactly); P25–P75 holds on 52.3%. Median implied value is ' + (co.q50_factor != null ? co.q50_factor.toFixed(3) : '?') + '× the curve.</p>';
+  }).join('; ') + '. The shipped P10–P90 bands hold on 78.9% of comps (the spec’s 80.5% is the hat-matrix LOO; the build refits exactly); P25–P75 holds on 52.3%. Median LOO residual factor is ' + (co.q50_factor != null ? co.q50_factor.toFixed(3) : '?') + '×.</p>';
   // E4: the worst categories by leave-one-out, from per_category.
   var worst = (v.per_category || []).slice().sort(function (a, b) { return b.median_fold_error - a.median_fold_error; }).slice(0, 5);
   h += evTable('E4 · Where the curve misses',
     ['Category', 'LOO miss'],
     worst.map(function (w) { return [w.category + ' (' + w.comps + ' comps)', '×' + w.median_fold_error.toFixed(4)]; }));
   h += '<p class="ev-note">Lending and Canonical Bridge remain the worst-priced. No category term survives the both-tests rule, so the board keeps the curve and shows the misses.</p>';
-  // §5.7 calibration. data.js: calibration.{mean_pred, actual_rate,
-  // terciles:[{pred, actual}], examples:[{slug, name, odds}]},
-  // offsets_top.{cat, fam}:[{name, offset}]. Example offsets come from
-  // the board rows, looked up by slug.
+  // E5: farm verdicts at the reference deposit (§5.7), from validation.farm.
+  var fv = v.farm || {}, rc = fv.reference_counts || {}, sc = fv.sized_counts || {};
+  h += evTable('E5 · Farm verdicts at the reference deposit',
+    ['Deposit', 'FARM', 'MARGINAL', 'THIN', 'SKIP'],
+    [1000, 2000, 5000, 10000].map(function (d) { var c = rc[d] || {}; return [(d === 5000 ? '<b>$5,000</b>' : '$' + d.toLocaleString('en-US')), c.farm || 0, c.marginal || 0, c.thin || 0, c.skip || 0]; }).concat([['Sized deposits (shipped plan)', sc.farm || 0, sc.marginal || 0, sc.thin || 0, sc.skip || 0]]));
+  h += '<p class="ev-note">FARM-flip deposits: ' + (fv.flip_buckets || []).map(function (b) { return b.label + ' ' + b.count; }).join(' · ') + '. ' + (fv.farmable_within_10k || 0) + ' rows farmable within the $10,000 cap; upper-median deposit needed for FARM $' + (fv.upper_median_flip_usd != null ? fv.upper_median_flip_usd.toLocaleString('en-US') : '?') + '. Sized plan caps net at ~costs, so 0 FARM there is a sizing artifact. Steakhouse needs $64,170, Sentora $86,893; Stellar DeFi Hub never FARMs.</p>';
+  // §5.7 calibration.
   var offs = cal.offsets_top || { cat: [], fam: [] };
   h += '<h3>Odds calibration — P(token recorded)</h3><p class="ev-note">The odds predict whether a protocol <b>records a token at all</b> (mcap, gecko_id or symbol) — not whether it launches one. Walk-forward: mean predicted ' + (cal.mean_pred != null ? cal.mean_pred.toFixed(3) : '?') + ' vs actual ' + (cal.actual_rate != null ? cal.actual_rate.toFixed(3) : '?') + '. Terciles (predicted → actual): ' + (cal.terciles || []).map(function (t) { return t.pred.toFixed(3) + ' → ' + t.actual.toFixed(3); }).join(', ') + '. Examples: ' + (cal.examples || []).map(function (e) { return e.name + ' ' + (e.odds * 100).toFixed(1) + '%'; }).join('; ') + '. Top offsets: ' + (offs.cat || []).slice(0, 3).map(function (o) { return o.name + ' ' + (o.offset > 0 ? '+' : '') + o.offset.toFixed(2); }).join(', ') + '; families ' + (offs.fam || []).slice(0, 3).map(function (o) { return o.name + ' ' + (o.offset > 0 ? '+' : '') + o.offset.toFixed(2); }).join(', ') + '.</p>';
   $('evidence').innerHTML = h;
 }
-// ---- validation panel (held-out numbers, stated plainly) ----
 function renderValidation() {
   var box = $('validation');
   var v = DATA.validation;
@@ -198,17 +189,15 @@ function renderValidation() {
   var cats = (v.per_category || []).slice().sort(function (a, b) { return a.median_fold_error - b.median_fold_error; });
   var best = cats[0], worst = cats[cats.length - 1];
   var ts = v.time_split, cov = v.coverage, d = v.decisions || {};
-  var p10Verdicts = { FARM: 0, THIN: 0, SKIP: 0 };
-  DATA.rows.forEach(function (r) { p10Verdicts[r.cost_plan.verdict]++; });
-  var expThin = DATA.rows.filter(function (r) { return r.cost_plan.net_expected_usd > 0; }).length;
+  var p10Verdicts = { FARM: 0, MARGINAL: 0, THIN: 0, SKIP: 0 };
+  var expCounts = { FARM: 0, MARGINAL: 0, THIN: 0, SKIP: 0 };
+  DATA.rows.forEach(function (r) { p10Verdicts[r.cost_plan.verdict]++; expCounts[r.cost_plan.verdict_expected]++; });
   var maxGross = DATA.rows.reduce(function (a, r) { return r.cost_plan.gross_p10_usd > a.cost_plan.gross_p10_usd ? r : a; }, DATA.rows[0]);
   var maxNet = DATA.rows.reduce(function (a, r) { return r.cost_plan.net_p10_usd > a.cost_plan.net_p10_usd ? r : a; }, DATA.rows[0]);
-  // The shrunk variant is already the 8th loo row (shipped); its WF
-  // comes from validation.shrunk_model (the loo list has no WF column).
   var sm = v.shrunk_model || {};
-  var tsMap = { 'log-log OLS (radar-5)': ts.radar5_median_fold_error, 'flat global median': ts.flat_median_fold_error, 'peer-only (radar-4)': ts.peer_median_fold_error, 'full radar-3 (peer x growth x maturity)': ts.radar3_median_fold_error, 'log-log + shrunk growth/age (radar-6, x0.05)': sm.wf };
-  var shortName = { 'log-log OLS (radar-5)': 'Log-log curve (radar-5)', 'flat global median': 'Flat global median', 'peer-only (radar-4)': 'Peer medians (radar-4)', 'shrinkage k=6': 'Shrinkage k=6', 'log-log + category factors k=6': 'Curve + category k=6', 'log-log + growth': 'Curve + growth', 'full radar-3 (peer x growth x maturity)': 'Full radar-3', 'log-log + shrunk growth/age (radar-6, x0.05)': 'Curve + shrunk growth/age' };
-  var keptMap = { 'log-log OLS (radar-5)': 'kept', 'peer-only (radar-4)': 'replaced', 'log-log + shrunk growth/age (radar-6, x0.05)': 'kept (shipped)' };
+  var tsMap = { 'log-log OLS (radar-5)': ts.radar5_median_fold_error, 'flat global median': ts.flat_median_fold_error, 'peer-only (radar-4)': ts.peer_median_fold_error, 'full radar-3 (peer x growth x maturity)': ts.radar3_median_fold_error, 'log-log + shrunk growth/age (radar-7, x0.05)': sm.wf };
+  var shortName = { 'log-log OLS (radar-5)': 'Log-log curve (radar-5)', 'flat global median': 'Flat global median', 'peer-only (radar-4)': 'Peer medians (radar-4)', 'shrinkage k=6': 'Shrinkage k=6', 'log-log + category factors k=6': 'Curve + category k=6', 'log-log + growth': 'Curve + growth', 'full radar-3 (peer x growth x maturity)': 'Full radar-3', 'log-log + shrunk growth/age (radar-7, x0.05)': 'Curve + shrunk growth/age' };
+  var keptMap = { 'log-log OLS (radar-5)': 'kept', 'peer-only (radar-4)': 'replaced', 'log-log + shrunk growth/age (radar-7, x0.05)': 'kept (shipped)' };
   var looRows = (v.loo || []).map(function (x) {
     var tsv = tsMap[x.variant];
     return '<tr><td>' + esc(shortName[x.variant] || x.variant) + '</td><td class="num">' + fmtFold(x.median_fold_error) + '</td><td class="num">' + (tsv != null ? fmtFold(tsv) : '—') + '</td><td>' + (keptMap[x.variant] || 'dropped') + '</td></tr>';
@@ -224,10 +213,9 @@ function renderValidation() {
     '<p><b>Time split — listing date, not walk-forward.</b> Curve fitted on the ' + ts.older + ' older comps (listed before ' + esc(ts.median_listed_at) + '), tested on the ' + ts.newer + ' newer: curve ' + fmtFold(ts.radar5_median_fold_error) + ' vs flat median ' + fmtFold(ts.flat_median_fold_error) + ' vs peer medians ' + fmtFold(ts.peer_median_fold_error) + ' — the same ordering as leave-one-out.</p>' +
     '<p><b>Per-category misses (final model).</b> Best: ' + esc(best.category) + ' ' + fmtFold(best.median_fold_error) + ' (' + best.comps + ' comps). Worst: ' + esc(worst.category) + ' ' + fmtFold(worst.median_fold_error) + ' (' + worst.comps + ' comps).</p>' +
     '<p><b>P10–P90 and P25–P75 coverage.</b> The shipped bands (per-category where a category has ≥10 comps, global otherwise) hold ' + cov.coverage_pct + '% (' + cov.covered + ' of ' + cov.total + ' comps); the all-global band holds ' + cov.global_band_coverage_pct + '%. The P25–P75 bands hold ' + cov.p25_p75_coverage_pct + '% (' + cov.p25_p75_covered + ' of ' + cov.total + ' comps), ' + cov.global_p25_p75_coverage_pct + '% all-global, and are ' + cov.band_width_x + '× wide. Global factors ×' + cov.q10_factor + ' / ×' + cov.q90_factor + '.</p>' +
-    '<p><b>The P10 verdict now discriminates.</b> At each row’s sized deposit the P10 verdict is ' + p10Verdicts.FARM + ' FARM / ' + p10Verdicts.THIN + ' THIN / ' + p10Verdicts.SKIP + ' SKIP. The P10 factor is ×' + cov.q10_factor + ', so the largest gross at P10 on the whole board is ' + fmtMoney(maxGross.cost_plan.gross_p10_usd) + ', and the best net at P10 is ' + fmtMoney(maxNet.cost_plan.net_p10_usd) + ' (' + esc(maxNet.name) + ') after gas and opportunity cost. The expected-net view discriminates more: ' + expThin + ' THIN / ' + (DATA.rows.length - expThin) + ' SKIP at the sized deposits.</p>' +
+    '<p><b>The P10 verdict now discriminates.</b> At each row’s sized deposit the P10 verdict is ' + p10Verdicts.FARM + ' FARM / ' + p10Verdicts.MARGINAL + ' MARGINAL / ' + p10Verdicts.THIN + ' THIN / ' + p10Verdicts.SKIP + ' SKIP. The P10 factor is ×' + cov.q10_factor + ', so the largest gross at P10 on the whole board is ' + fmtMoney(maxGross.cost_plan.gross_p10_usd) + ', and the best net at P10 is ' + fmtMoney(maxNet.cost_plan.net_p10_usd) + ' (' + esc(maxNet.name) + ') after gas and opportunity cost. The expected-net view discriminates more: ' + expCounts.MARGINAL + ' MARGINAL / ' + expCounts.THIN + ' THIN / ' + expCounts.SKIP + ' SKIP at the sized deposits.</p>' +
     '</div></div>';
 }
-// ---- full-758 accounting strip ----
 function renderAccounting() {
   var box = $('accounting');
   var a = DATA.accounting;
@@ -244,7 +232,6 @@ function fnv1a(s) {
   for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
   return ('0000000' + h.toString(16)).slice(-8);
 }
-// ---- on-page self-check: recompute every row in-page ----
 function renderSelfcheck() {
   var bad = [], evBad = [];
   DATA.rows.forEach(function (r) {
@@ -269,7 +256,6 @@ function renderSelfcheck() {
     (integOk ? ' · <b class="pass">PASS</b>' : ' · <b class="fail">FAIL</b>');
   $('integrity').classList.toggle('fail', !integOk);
 }
-// ---- portfolio view: top 5 by expected net per hour ----
 function renderPortfolio() {
   var cap = parseFloat($('planCapital').value);
   if (!(cap > 0)) cap = REF_CAP;
@@ -292,7 +278,6 @@ function renderPortfolio() {
       }).join('') + '</tbody></table>' +
       '<p class="plan-total">Total expected net across the 5 farms: <b>' + fmtMoney(total) + '</b> at ' + fmtUsd(cap) + ' per farm.</p>';
 }
-// ---- CSV export of the visible rows ----
 function csvCell(v) {
   var s = String(v == null ? '' : v);
   return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
@@ -305,10 +290,10 @@ function exportCsv() {
       return [t.name, t.slug, t.symbol || '', t.category || '', (t.chains || []).join(';'), t.tvl_usd, t.mcap_usd].map(csvCell).join(',');
     });
   } else {
-    head = ['rank', 'name', 'slug', 'category', 'chains', 'tvl_usd', 'implied_value_usd', 'p10_usd', 'p25_usd', 'p75_usd', 'p90_usd', 'odds', 'expected_value_usd', 'verdict', 'verdict_expected', 'net_p10_usd', 'net_expected_usd'];
+    head = ['rank', 'name', 'slug', 'category', 'chains', 'tvl_usd', 'implied_value_usd', 'p10_usd', 'p25_usd', 'p75_usd', 'p90_usd', 'odds', 'expected_value_usd', 'verdict', 'verdict_expected', 'net_p10_usd', 'net_expected_usd', 'farm_flip_usd'];
     lines = visibleRows().map(function (r) {
       var p = planOf(r, state.capital, state.share);
-      return [r.rank, r.name, r.slug, r.category || '', (r.chains || []).join(';'), r.tvl_usd, r.implied_value_usd, r.p10_usd, r.p25_usd, r.p75_usd, r.p90_usd, r.odds, r.expected_value_usd, viewVerdict(p), p.verdictExp, p.netP10, p.netExp].map(csvCell).join(',');
+      return [r.rank, r.name, r.slug, r.category || '', (r.chains || []).join(';'), r.tvl_usd, r.implied_value_usd, r.p10_usd, r.p25_usd, r.p75_usd, r.p90_usd, r.odds, r.expected_value_usd, viewVerdict(p), p.verdictExp, p.netP10, p.netExp, r.cost_plan.farm_flip_usd].map(csvCell).join(',');
     });
   }
   var blob = new Blob([head.join(',') + '\n' + lines.join('\n') + '\n'], { type: 'text/csv' });
@@ -319,7 +304,6 @@ function exportCsv() {
   a.click();
   setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
 }
-// ---- filter options ----
 function fillSelect(el, values) {
   values.forEach(function (v) {
     var o = document.createElement('option'); o.value = v; o.textContent = v; el.appendChild(o);
@@ -351,7 +335,6 @@ function syncUrl() {
   var qs = p.toString();
   history.replaceState(null, '', location.pathname + (qs ? '?' + qs : '') + (state.selected ? '#/p/' + state.selected : ''));
 }
-// ---- filtering + sorting ----
 function visibleRows() {
   var q = state.q.trim().toLowerCase();
   var rows = DATA.rows.filter(function (r) {
@@ -411,16 +394,10 @@ function render() {
     return;
   }
   var rows = visibleRows();
-  // Verdict counts at the SELECTED capital/share (via planOf), so the
-  // count line matches the Verdict/Net columns.
-  var expT = 0, expF = 0, p10T = 0, p10F = 0;
-  DATA.rows.forEach(function (r) {
-    var p = planOf(r, state.capital, state.share);
-    if (p.verdictExp === 'FARM') expF++; else if (p.verdictExp === 'THIN') expT++;
-    if (p.verdictP10 === 'FARM') p10F++; else if (p.verdictP10 === 'THIN') p10T++;
-  });
+  var expC = { FARM: 0, MARGINAL: 0, THIN: 0, SKIP: 0 }, p10C = { FARM: 0, MARGINAL: 0, THIN: 0, SKIP: 0 };
+  DATA.rows.forEach(function (r) { var p = planOf(r, state.capital, state.share); expC[p.verdictExp]++; p10C[p.verdictP10]++; });
   $('count').innerHTML = 'Showing <b>' + rows.length + '</b> of ' + DATA.rows.length +
-    ' ranked protocols' + (state.watch ? ' · watchlist only' : '') + '. Verdicts and nets at ' + fmtUsd(state.capital) + ' capital, ' + (state.share * 100) + '% airdrop share, ' + (state.verdict === 'exp' ? 'expected-net view (' + expF + ' FARM / ' + expT + ' THIN / ' + (DATA.rows.length - expF - expT) + ' SKIP)' : 'P10 view (' + p10F + ' FARM / ' + p10T + ' THIN / ' + (DATA.rows.length - p10F - p10T) + ' SKIP)') + '. Click a row for its value breakdown and farm plan.';
+    ' ranked protocols' + (state.watch ? ' · watchlist only' : '') + '. Verdicts and nets at ' + fmtUsd(state.capital) + ' capital, ' + (state.share * 100) + '% airdrop share, ' + (state.verdict === 'exp' ? 'expected-net view (' + expC.FARM + ' FARM / ' + expC.MARGINAL + ' MARGINAL / ' + expC.THIN + ' THIN / ' + expC.SKIP + ' SKIP)' : 'P10 view (' + p10C.FARM + ' FARM / ' + p10C.MARGINAL + ' MARGINAL / ' + p10C.THIN + ' THIN / ' + p10C.SKIP + ' SKIP)') + '. Click a row for its value breakdown and farm plan.';
   empty.hidden = rows.length > 0;
   tbody.innerHTML = rows.map(function (r) {
     var top = r.rank <= 3 ? ' top' : '';
@@ -443,7 +420,6 @@ function render() {
   }).join('');
   renderDetail();
 }
-// ---- detail drawer ----
 var closeTimer = null;
 var renderedSlug = null;
 function openDrawer() {
@@ -477,13 +453,13 @@ function renderDetail() {
   var sm2 = (DATA.validation || {}).shrunk_model || {};
   var p = planOf(r, state.capital, state.share);
   var ll = DATA.loglog || null;
-  var p10Counts = { FARM: 0, THIN: 0, SKIP: 0 };
-  DATA.rows.forEach(function (x) { p10Counts[x.cost_plan.verdict]++; });
-  var expPos = DATA.rows.filter(function (x) { return x.cost_plan.net_expected_usd > 0; }).length;
-  var p10Note = 'At each row’s sized deposit the P10 verdict across the board is ' + p10Counts.FARM + ' FARM / ' + p10Counts.THIN + ' THIN / ' + p10Counts.SKIP + ' SKIP (P10 factor ×' + (cov.q10_factor || '') + '). The expected net discriminates more (' + expPos + ' THIN / ' + (DATA.rows.length - expPos) + ' SKIP at the sized deposits).';
-  // Shipped sized-deposit plan (§4.5 budget line).
+  var p10Counts = { FARM: 0, MARGINAL: 0, THIN: 0, SKIP: 0 };
+  var expCounts = { FARM: 0, MARGINAL: 0, THIN: 0, SKIP: 0 };
+  DATA.rows.forEach(function (x) { p10Counts[x.cost_plan.verdict]++; expCounts[x.cost_plan.verdict_expected]++; });
+  var p10Note = 'At each row’s sized deposit the P10 verdict across the board is ' + p10Counts.FARM + ' FARM / ' + p10Counts.MARGINAL + ' MARGINAL / ' + p10Counts.THIN + ' THIN / ' + p10Counts.SKIP + ' SKIP (P10 factor ×' + (cov.q10_factor || '') + '). The expected net discriminates more (' + expCounts.MARGINAL + ' MARGINAL / ' + expCounts.THIN + ' THIN / ' + expCounts.SKIP + ' SKIP at the sized deposits).';
   var c = r.cost_plan;
   var budget = 'Budget: ' + fmtUsd(c.deposit_usd) + ' deposit + ' + fmtMoney(c.gas_usd) + ' gas + ' + c.time_minutes + ' min over ' + c.hold_days + ' days · Gross (expected) ' + fmtMoney(c.gross_expected_usd) + ' · Net (expected) ' + fmtMoney(c.net_expected_usd) + ' · ' + fmtMoney(c.net_expected_per_hour_usd) + '/h · P10 net ' + fmtMoney(c.net_p10_usd) + ' · ' + c.verdict_expected +
+    (c.farm_flip_usd != null ? ' · FARM at $' + c.farm_flip_usd.toLocaleString('en-US') + ' deposit' : ' · never FARMs at any deposit') +
     (c.verdict_expected === 'SKIP' && c.deposit_needed_usd ? ' — needs ' + fmtUsd(c.deposit_needed_usd) + ' deposit to pay' : '');
   box.innerHTML =
     '<div class="detail-head"><div><h2>#' + r.rank + ' · ' + esc(r.name) + '</h2>' +
@@ -535,7 +511,6 @@ function select(slug) {
   syncUrl();
   render();
 }
-// ---- events ----
 $('rows').addEventListener('click', function (e) {
   var tr = e.target.closest('tr[data-slug]');
   if (!tr || state.tab === 'traded') return;

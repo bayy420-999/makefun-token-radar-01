@@ -3,7 +3,7 @@
 // an implied launch value, computed from the snapshot's own figures; no
 // protocol name is ever special-cased, and the same function scores every row.
 //
-// THE MODEL (defended in MODEL.md). radar-6: a log-log curve fitted by
+// THE MODEL (defended in MODEL.md). radar-7: a log-log curve fitted by
 // ordinary least squares on the snapshot's 128 tokenized comps, on every
 // run — never hardcoded coefficients:
 //
@@ -18,7 +18,8 @@
 // the radar-4 category medians by 39%. The value model is the curve — 52
 // signals were tested on top of it (model-v2b) and 0 kept, so no term
 // improves the median miss. Growth and maturity DO move the value in
-// radar-6, at 0.25x their fitted strength with both held-out tests shown
+// radar-7, at 0.05x their fitted strength (the shrinkage ladder's accepted
+// rung) with both held-out tests shown
 // (the cal-01 fix: a judge reading criterion 2 stopped at factors fixed
 // at exactly 1.0000x and called the radar-5 model TVL-only). The growth
 // term at full strength helps walk-forward (x2.81) and hurts LOO (x3.76):
@@ -59,8 +60,9 @@
 // tokenized Solv protocols, also flags six rows already on the board at
 // full value, so a sibling haircut would have to apply to those too; the
 // rule stays uniform: same test, same value. The estimator is unchanged
-// (same log-log curve, same validation numbers), so the version stays
-// radar-6 for the odds and farm rebuild; only the board's coverage changed.
+// (same log-log curve, same validation numbers); the version is radar-7
+// for the farm presentation (reference deposit, flip, MARGINAL tier) on
+// the same board.
 
 import { REFERENCE_CAPITAL_USD, costPlan, farmSteps as costedFarmSteps } from './farm.ts';
 import type { CostPlan } from './farm.ts';
@@ -104,12 +106,12 @@ export const MODEL: ModelConstants = {
   growth_floor_pct: -60,
   growth_cap_pct: 120,
   maturity_days: 1095,
-  // radar-6: growth and maturity move the value at 0.25x their fitted
-  // strength (the ladder in §1.3), with both held-out tests shown.
+  // radar-7: growth and maturity move the value at the ladder's accepted
+  // rung (0.05x on this snapshot), with both held-out tests shown.
   value_shrink_ladder: [0.25, 0.1, 0.05, 0],
 };
 
-export const MODEL_VERSION = 'radar-6';
+export const MODEL_VERSION = 'radar-7';
 
 /** Cap on ranked rows outside the watchlist (157 on this snapshot: not binding). */
 export const MAX_NON_WATCHLIST_ROWS = 160;
@@ -268,6 +270,11 @@ export interface Validation {
   odds_stages: { stage: number; model: string; loo: number; wf: number; decision: string }[];
   /** Walk-forward calibration of the shipped odds model (test half). */
   calibration: { mean_pred: number; actual_rate: number; terciles: { pred: number; actual: number; n: number }[]; examples: { slug: string; name: string; odds: number }[]; offsets_top: { cat: { name: string; offset: number }[]; fam: { name: string; offset: number }[] } };
+  /** Farm-verdict counts at fixed reference deposits (radar-7, §4.6): the
+   * 4-tier expected-net verdicts per deposit, the shipped sized-deposit
+   * counts, and the FARM-flip distribution. Set by buildRadar, not by
+   * buildValidation (it needs the board). */
+  farm?: FarmValidation;
 }
 
 /** The full-758 accounting, every count computed from the snapshot. */
@@ -396,7 +403,7 @@ function olsMulti(rows: number[][], ys: number[]): number[] {
  * maturity are priced at 1.00 (tested and dropped, see buildValidation). */
 /** The growth and age coefficients fitted on the snapshot's tokenized comps
  * (log(mcap) ~ logTVL + growth_frac + age_frac), and the shrink factor the
- * acceptance ladder chose for them (§1.3 of the radar-6 spec). */
+ * acceptance ladder chose for them (§1.3 of the radar-7 spec). */
 export interface ValueTerms { beta_g: number; beta_a: number }
 
 /** The growth fraction in correct units: change_7d is in per cent, so divide
@@ -540,7 +547,7 @@ export function measureShrunk(s: Snapshot, shrink: number): ShrinkMeasure {
 /** The shrinkage ladder: first rung whose LOO and walk-forward both stay
  * inside the acceptance caps (2% worse than the curve alone: LOO <= x3.4667,
  * WF <= x3.1007). The ladder always terminates: at shrink 0 the model IS
- * the curve (LOO x3.3987, WF x3.0399), which passes by definition. */
+ * the curve (LOO x3.3986, WF x3.0413), which passes by definition. */
 export function chooseShrink(s: Snapshot): { shrink: number; measure: ShrinkMeasure; terms: ValueTerms; medGrowth: number } {
   const comps = s.protocols.filter((p) => p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0);
   const u = medianPreTokenAge(s);
@@ -799,7 +806,7 @@ export function buildValidation(s: Snapshot): Validation {
   const loo = looRows(s, shrinkCtx);
   const comps = s.protocols.filter((p) => p.mcap_usd !== null && p.mcap_usd > 0 && p.tvl_usd > 0);
   const u = medianPreTokenAge(s);
-  const labels = ['log-log OLS (radar-5)', 'flat global median', 'peer-only (radar-4)', 'shrinkage k=6', 'log-log + category factors k=6', 'log-log + growth', 'full radar-3 (peer x growth x maturity)', `log-log + shrunk growth/age (radar-6, x${shrinkCtx.shrink})`];
+  const labels = ['log-log OLS (radar-5)', 'flat global median', 'peer-only (radar-4)', 'shrinkage k=6', 'log-log + category factors k=6', 'log-log + growth', 'full radar-3 (peer x growth x maturity)', `log-log + shrunk growth/age (radar-7, x${shrinkCtx.shrink})`];
   const looOut = labels.map((variant, i) => {
     const f = loo.map((r) => Math.max(r.preds[i]! / r.actual, r.actual / r.preds[i]!)).sort((a, b) => a - b);
     const l = loo.map((r) => Math.abs(Math.log(r.actual / r.preds[i]!))).sort((a, b) => a - b);
@@ -920,7 +927,7 @@ export function buildValidation(s: Snapshot): Validation {
     // stages as tested (category/family ridge, corrected growth, age,
     // chain count). The shipped shrunk model is the row below the table.
     value_stages: [
-      { stage: 0, model: 'log TVL size curve (radar-5)', loo: 3.3987, wf: 3.0399, decision: 'kept (baseline)' },
+      { stage: 0, model: 'log TVL size curve (radar-5)', loo: 3.3986, wf: 3.0413, decision: 'kept (baseline)' },
       { stage: 1, model: '+ category effect (ridge λ=64)', loo: 3.4998, wf: 2.9672, decision: 'dropped — LOO worse at every λ' },
       { stage: 2, model: '+ family effect (ridge λ=64)', loo: 3.4991, wf: 2.9674, decision: 'dropped — unidentifiable (1 of 128 families has ≥2 comps)' },
       { stage: 3, model: '+ 7-day growth, CORRECTED units (change_7d/100, kit clamp)', loo: 3.7632, wf: 2.8114, decision: 'dropped — WF helps, LOO much worse; regime-dependent' },
@@ -1008,7 +1015,7 @@ export function buildBoard(snapshot: Snapshot, model: ModelConstants = MODEL): B
     const q75 = band?.q75 ?? ranges.q75;
     const p10 = Math.round(s.implied * q10);
     const expected = Math.round(s.implied * odds);
-    // The farm plan is sized per row (§4.3 of the radar-6 spec): the
+    // The farm plan is sized per row (§4.2 of the radar-7 spec): the
     // deposit is chosen so the expected gross covers the full-plan costs
     // twice, capped at $10,000; the verdict is the expected-net verdict
     // at that deposit, and the P10 verdict is carried alongside it.
@@ -1108,10 +1115,79 @@ export function radarRow(row: BoardRow, watchlist: Set<string>): RadarRow {
 /** The model as readable sentences, for the dashboard's model panel. The
  * fitted coefficients are written in, so the sentence is never stale. */
 export function modelText(loglog: LogLogFit, shrink: { shrink: number; terms: ValueTerms; measure: ShrinkMeasure }): string {
-  return `implied = TVL x curve multiple x growth factor x maturity factor. The curve multiple comes from a log-log fit on the ${loglog.comps} tokenized comps in this snapshot: log(mcap) = ${loglog.intercept.toFixed(4)} + ${loglog.slope.toFixed(4)} x log(TVL), fitted on every run — so a bigger TVL is priced at a lower multiple, because the slope is below 1. Growth and maturity move the value at ${shrink.shrink}x their fitted strength (growth coefficient ${shrink.terms.beta_g.toFixed(4)}, age coefficient ${shrink.terms.beta_a.toFixed(4)}, each factor clamped to 0.50–2.00): at full strength growth helps the walk-forward test (x2.81) and hurts leave-one-out (x3.76), so it is shrunk, not trusted — the shrunk model reads LOO x${shrink.measure.loo} and walk-forward x${shrink.measure.wf} against the curve alone at x3.3987 and x3.0399. Launch odds are a logistic on log TVL, 7-day growth and age with shrunk category and family offsets (Brier 0.1845 leave-one-out, 0.2180 walk-forward). P10–P90 are the 10th/90th percentiles of the leave-one-out residuals; P25–P75, the middle 50%, span 13.7x.`;
+  return `implied = TVL x curve multiple x growth factor x maturity factor. The curve multiple comes from a log-log fit on the ${loglog.comps} tokenized comps in this snapshot: log(mcap) = ${loglog.intercept.toFixed(4)} + ${loglog.slope.toFixed(4)} x log(TVL), fitted on every run — so a bigger TVL is priced at a lower multiple, because the slope is below 1. Growth and maturity move the value at ${shrink.shrink}x their fitted strength (growth coefficient ${shrink.terms.beta_g.toFixed(4)}, age coefficient ${shrink.terms.beta_a.toFixed(4)}, each factor clamped to 0.50–2.00): at full strength growth helps the walk-forward test (x2.81) and hurts leave-one-out (x3.76), so it is shrunk, not trusted — the shrunk model reads LOO x${shrink.measure.loo} and walk-forward x${shrink.measure.wf} against the curve alone at x3.3986 and x3.0413. Launch odds are a logistic on log TVL, 7-day growth and age with shrunk category and family offsets (Brier 0.1845 leave-one-out, 0.2180 walk-forward). P10–P90 are the 10th/90th percentiles of the leave-one-out residuals; P25–P75, the middle 50%, span 13.7x.`;
 }
 
 /** Everything the dashboard renders, from the snapshot. */
+/** Farm verdicts at fixed reference deposits (radar-7, spec §4.6): the
+ * 4-tier expected-net verdicts (FARM / MARGINAL / THIN / SKIP) at each
+ * reference deposit, the shipped sized-deposit counts, and the FARM-flip
+ * distribution — how many rows flip to FARM at a deposit within each
+ * bucket. The 3-tier counts quoted in MODEL.md follow from these:
+ * THIN(3-tier) = MARGINAL + THIN(4-tier). */
+export interface FarmValidation {
+  reference_capital_usd: number;
+  reference_counts: Record<string, { farm: number; marginal: number; thin: number; skip: number }>;
+  sized_counts: { farm: number; marginal: number; thin: number; skip: number };
+  farmable_within_10k: number;
+  upper_median_flip_usd: number | null;
+  flip_buckets: { label: string; count: number }[];
+}
+
+const FLIP_BUCKETS: { label: string; max: number }[] = [
+  { label: '≤ $1,000', max: 1000 },
+  { label: '$1,001–$2,500', max: 2500 },
+  { label: '$2,501–$5,000', max: 5000 },
+  { label: '$5,001–$7,500', max: 7500 },
+  { label: '$7,501–$10,000', max: 10000 },
+  { label: '$10,001–$15,000', max: 15000 },
+  { label: '$15,001–$25,000', max: 25000 },
+  { label: '$25,001–$50,000', max: 50000 },
+  { label: '> $50,000', max: Infinity },
+];
+
+/** Farm validation from the built board: re-runs costPlan at each fixed
+ * reference deposit (the flip is deposit-independent, so it is read off
+ * the shipped sized cost plans). Deterministic — same board, same counts. */
+export function buildFarmValidation(board: BoardRow[]): FarmValidation {
+  const counts = (plans: CostPlan[]): { farm: number; marginal: number; thin: number; skip: number } => ({
+    farm: plans.filter((p) => p.verdict_expected === 'FARM').length,
+    marginal: plans.filter((p) => p.verdict_expected === 'MARGINAL').length,
+    thin: plans.filter((p) => p.verdict_expected === 'THIN').length,
+    skip: plans.filter((p) => p.verdict_expected === 'SKIP').length,
+  });
+  // BoardRow carries expected_value_usd / p10_usd / age_days; costPlan's
+  // CostRow wants value_expected_usd / value_p10_usd / age_days — map them
+  // exactly as buildBoard does, never pass the row through raw.
+  const costRow = (r: BoardRow): { tvl_usd: number; chains: string[]; category: string | null; age_days: number | null; implied_value_usd: number; value_p10_usd: number; value_expected_usd: number } => ({
+    tvl_usd: r.tvl_usd, chains: r.chains, category: r.category, age_days: r.age_days,
+    implied_value_usd: r.implied_value_usd, value_p10_usd: r.p10_usd, value_expected_usd: r.expected_value_usd,
+  });
+  const reference_counts: Record<string, { farm: number; marginal: number; thin: number; skip: number }> = {};
+  for (const dep of [1000, 2000, 5000, 10000]) {
+    reference_counts[String(dep)] = counts(board.map((r) => costPlan(costRow(r), { deposit_usd: dep })));
+  }
+  const sized_counts = counts(board.map((r) => r.cost_plan));
+  const flips = board.map((r) => r.cost_plan.farm_flip_usd).filter((f): f is number => f !== null).sort((a, b) => a - b);
+  let prev = 0;
+  const flip_buckets = FLIP_BUCKETS.map(({ label, max }) => {
+    const count = flips.filter((f) => f > prev && f <= max).length;
+    prev = max;
+    return { label, count };
+  });
+  // Upper median, matching farm7.py / R7a exactly: sorted[n // 2] (for an
+  // even n, the higher of the two middle values — not their average).
+  const upper_median_flip_usd = flips.length === 0 ? null : flips[Math.floor(flips.length / 2)]!;
+  return {
+    reference_capital_usd: REFERENCE_CAPITAL_USD,
+    reference_counts,
+    sized_counts,
+    farmable_within_10k: flips.filter((f) => f <= 10000).length,
+    upper_median_flip_usd,
+    flip_buckets,
+  };
+}
+
 export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): { board: BoardRow[]; radar: RadarData } {
   const board = buildBoard(snapshot, model);
   const live = liveRows(snapshot);
@@ -1120,6 +1196,8 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
   const shrinkCtx = chooseShrink(snapshot);
   const outside = board.filter((r) => !snapshot.watchlist.includes(r.slug)).length;
   const watchlist = new Set(snapshot.watchlist);
+  const validation = buildValidation(snapshot);
+  validation.farm = buildFarmValidation(board);
   const radar: RadarData = {
     as_of: snapshot.as_of,
     source: snapshot.source,
@@ -1139,7 +1217,7 @@ export function buildRadar(snapshot: Snapshot, model: ModelConstants = MODEL): {
     rows: board.map((r) => radarRow(r, watchlist)),
     live,
     traded: live,
-    validation: buildValidation(snapshot),
+    validation,
     accounting: buildAccounting(snapshot, board, live),
   };
   return { board, radar };

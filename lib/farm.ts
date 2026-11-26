@@ -1,4 +1,4 @@
-// Token radar: costed farm plans (farm.ts) — radar-6.
+// Token radar: costed farm plans (farm.ts) — radar-7.
 //
 // Pure functions, deterministic: no clock, no randomness, no network.
 // Self-contained on purpose — it duplicates the two tiny helpers it needs
@@ -24,7 +24,7 @@
 //
 // ── The full-plan budget ─────────────────────────────────────────────────
 // The radar-5 plan priced deposit gas + claim gas on the main chain only.
-// A real farm pays more than that, so radar-6 prices the whole plan:
+// A real farm pays more than that, so radar-7 prices the whole plan:
 //   amortised on-ramp  $0.90 — on-ramp $1.00 + first bridge $3.50, spread
 //                       over five farms ($4.50 / 5); charged on every row.
 //   second chain       $1.00 bridge + the second chain's deposit gas, when
@@ -90,9 +90,11 @@
 // 365 days or older 30 days.
 //
 // ── Verdicts (our rules, stated, not derived) ────────────────────────────
-//   FARM  net > $50 AND net per hour > $5.
-//   THIN  net > $0 (worth doing only if the hour is already spent).
-//   SKIP  otherwise (net <= $0: the farm costs more than it pays).
+//   FARM     net > $50 AND net per hour > $5.
+//   MARGINAL net > $0 AND net per hour > $2 (radar-7: a subdivision of
+//            THIN — "worth an hour" vs "barely positive").
+//   THIN     net > $0 (worth doing only if the hour is already spent).
+//   SKIP     otherwise (net <= $0: the farm costs more than it pays).
 // Two verdicts ship: `verdict` on the P10 net (the pessimistic case — a
 // row that cannot clear $0 at P10 only pays in the good outcomes, and the
 // board says so instead of selling the median outcome as the plan) and
@@ -119,9 +121,11 @@ export const SIZED_DEPOSIT_CAP_USD = 10000;
 /** Verdict thresholds, in USD. */
 export const FARM_MIN_NET_USD = 50;
 export const FARM_MIN_PER_HOUR_USD = 5;
+/** MARGINAL: net > $0 and net/hour > $2 — a subdivision of THIN (radar-7). */
+export const MARGINAL_MIN_PER_HOUR_USD = 2;
 
-/** The dashboard controls' default plan capital: "does it pay at $1,000?" */
-export const REFERENCE_CAPITAL_USD = 1000;
+/** The dashboard controls' default plan capital: "does it pay at $5,000?" (radar-7: $5,000 reference). */
+export const REFERENCE_CAPITAL_USD = 5000;
 
 /** Weekly check-in time, in minutes, and the one-off verification time. */
 export const WEEKLY_CHECK_MINUTES = 10;
@@ -215,10 +219,16 @@ export interface CostPlan {
   gross_expected_usd: number;
   net_expected_usd: number;
   net_expected_per_hour_usd: number;
-  /** The P10 verdict: FARM > $50 and > $5/hr, else THIN > $0, else SKIP. */
-  verdict: 'FARM' | 'THIN' | 'SKIP';
+  /** The P10 verdict: FARM > $50 and > $5/hr, else MARGINAL > $0 and > $2/hr,
+ * else THIN > $0, else SKIP. */
+  verdict: 'FARM' | 'MARGINAL' | 'THIN' | 'SKIP';
   /** The expected-net verdict, same thresholds on the expected net. */
-  verdict_expected: 'FARM' | 'THIN' | 'SKIP';
+  verdict_expected: 'FARM' | 'MARGINAL' | 'THIN' | 'SKIP';
+  /** The smallest whole-dollar deposit at which the expected net clears the
+   * FARM bar (net > $50 and net/hour > $5), solved exactly from the linear
+   * net function — or null when the net rate is <= 0 and no deposit ever
+   * farms (radar-7). */
+  farm_flip_usd: number | null;
 }
 
 /** The row's main chain: the first chain it names, or the default bucket. */
@@ -327,7 +337,19 @@ export function costPlan(row: CostRow, opts: { deposit_usd?: number } = {}): Cos
   const perHourP10 = Math.round(netP10 / (timeMinutes / 60));
   const perHourExp = Math.round(netExp / (timeMinutes / 60));
   const verdictOf = (net: number, perHour: number): CostPlan['verdict'] =>
-    net > FARM_MIN_NET_USD && perHour > FARM_MIN_PER_HOUR_USD ? 'FARM' : net > 0 ? 'THIN' : 'SKIP';
+    net > FARM_MIN_NET_USD && perHour > FARM_MIN_PER_HOUR_USD ? 'FARM' : net > 0 && perHour > MARGINAL_MIN_PER_HOUR_USD ? 'MARGINAL' : net > 0 ? 'THIN' : 'SKIP';
+  // The FARM-flip deposit (radar-7): the smallest whole-dollar deposit at
+  // which the expected net clears the FARM bar, solved exactly from the
+  // linear net function net(D) = D x rate - fixed, where rate is the net
+  // rate per deposit-dollar (gross rate - swap rate - opportunity rate).
+  // Null when the net rate is <= 0: no deposit ever farms that row.
+  const grossRatePerDollar = row.tvl_usd > 0 && row.value_expected_usd > 0
+    ? (row.value_expected_usd / row.tvl_usd) * AIRDROP_SHARE * ACTIVITY_MULTIPLIER
+    : 0;
+  const netRate = grossRatePerDollar - swapRateFor(row.category ?? null) - Math.max(0, TBILL_RATE - positionYield(row.category ?? null)) * (hold / 365);
+  const farmFlipUsd = netRate <= 0
+    ? null
+    : Math.ceil(Math.max((FARM_MIN_NET_USD + costs.fixed) / netRate, (FARM_MIN_PER_HOUR_USD * (timeMinutes / 60) + costs.fixed) / netRate));
   return {
     deposit_usd: deposit,
     deposit_min_usd: depositMin,
@@ -346,6 +368,7 @@ export function costPlan(row: CostRow, opts: { deposit_usd?: number } = {}): Cos
     net_expected_per_hour_usd: perHourExp,
     verdict: verdictOf(netP10, perHourP10),
     verdict_expected: verdictOf(netExp, perHourExp),
+    farm_flip_usd: farmFlipUsd,
   };
 }
 
